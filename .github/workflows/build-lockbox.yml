@@ -7,6 +7,7 @@ on:
       - 'play_by_play_2026.csv.gz'
       - 'build_lockbox.py'
       - 'score_state_research.py'
+      - 'opportunity_audit.py'
       - '.github/workflows/build-lockbox.yml'
 
 jobs:
@@ -23,17 +24,14 @@ jobs:
         run: python build_lockbox.py
       - name: Build game-script research
         run: python score_state_research.py
+      - name: Validate player-game and opening-drive opportunities
+        run: python opportunity_audit.py
       - name: Upload research outputs
         uses: actions/upload-artifact@v4
         with:
           name: nfl-lockbox-research
           path: |
             NFL_LOCKBOX_2026/nfl_lockbox_2026.sqlite
-            NFL_LOCKBOX_2026/audit.json
-            NFL_LOCKBOX_2026/game_coverage.csv
-            NFL_LOCKBOX_2026/player_game_usage.csv
-            NFL_LOCKBOX_2026/player_rolling_trends.csv
-            NFL_LOCKBOX_2026/qb_score_state_2026.csv
-            NFL_LOCKBOX_2026/receiver_score_state_2026.csv
-            NFL_LOCKBOX_2026/team_score_state_2026.csv
-            NFL_LOCKBOX_2026/score_state_audit_2026.json
+            NFL_LOCKBOX_2026/*.csv
+            NFL_LOCKBOX_2026/*.json
+          if-no-files-found: error
