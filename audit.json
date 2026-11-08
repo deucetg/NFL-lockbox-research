@@ -1,0 +1,26 @@
+{
+  "archive": "play_by_play_2026.csv.gz",
+  "provenance": "user-uploaded, nflverse-format external play-by-play; separate from manually curated LOCKBOX data",
+  "rows": 21347,
+  "distinct_games": 122,
+  "source_columns": 372,
+  "duplicate_play_keys": 0,
+  "first_game_date": "2026-09-09",
+  "last_game_date": "2026-11-05",
+  "week_rows": {
+    "1": 2756,
+    "2": 2733,
+    "3": 2822,
+    "4": 2844,
+    "5": 2687,
+    "6": 2538,
+    "7": 2358,
+    "8": 2453,
+    "9": 156
+  },
+  "player_game_role_rows": 3198,
+  "games_with_fewer_than_four_quarters": [],
+  "warning": "Four quarters present does not prove complete play-by-play. Passing targets require an identified receiver and pass_attempt=1. Unidentified targets are excluded and reported by audit; incomplete passes may lack a receiver. Two-point plays not yet allocated to individual player usage.",
+  "pass_attempts_without_receiver_id": 945,
+  "pass_attempts_with_receiver_id": 7722
+}
