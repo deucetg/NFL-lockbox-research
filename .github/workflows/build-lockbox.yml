@@ -1,0 +1,31 @@
+name: Build NFL LOCKBOX database
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'play_by_play_2026.csv.gz'
+      - 'build_lockbox.py'
+      - '.github/workflows/build-lockbox.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build research database
+        run: python build_lockbox.py
+      - name: Upload research outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-lockbox-research
+          path: |
+            NFL_LOCKBOX_2026/nfl_lockbox_2026.sqlite
+            NFL_LOCKBOX_2026/audit.json
+            NFL_LOCKBOX_2026/game_coverage.csv
+            NFL_LOCKBOX_2026/player_game_usage.csv
