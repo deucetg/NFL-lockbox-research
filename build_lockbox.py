@@ -62,3 +62,34 @@ c.close()
 with zipfile.ZipFile(BASE/'NFL_LOCKBOX_2026_AUDITED.zip','w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
  for p in ROOT.iterdir():z.write(p,arcname=p.name)
 print(json.dumps(report,indent=2));print('zip',os.path.getsize(BASE/'NFL_LOCKBOX_2026_AUDITED.zip'))
+
+# PHASE 2: Player rolling trends (completed weeks only)
+import csv as _csv
+from collections import defaultdict as _defaultdict
+
+with (ROOT/'player_game_usage.csv').open(newline='') as _f:
+    _usage=list(_csv.DictReader(_f))
+
+# Exclude the most recent week when the uploaded source may be incomplete.
+_weeks=sorted({int(r['week']) for r in _usage if r['week'] and r['season']=='2026'})
+_excluded_week=max(_weeks) if _weeks else None
+_groups=_defaultdict(list)
+for _r in _usage:
+    if _r['season']!='2026' or not _r['week']:
+        continue
+    if int(_r['week'])==_excluded_week:
+        continue
+    _groups[(_r['player_id'],_r['role'])].append(_r)
+
+_trend_metrics=['targets','receptions','receiving_yards','rush_attempts','rushing_yards','pass_attempts','completions','passing_yards','q1_targets','q1_receptions','q1_receiving_yards','q1_rush_attempts','q1_rushing_yards','q1_pass_attempts','q1_completions','q1_passing_yards']
+with (ROOT/'player_rolling_trends.csv').open('w',newline='') as _f:
+    _w=_csv.writer(_f)
+    _w.writerow(['player_id','player_name','role','window','games_in_sample','latest_game_date','excluded_week']+[m+'_per_game' for m in _trend_metrics])
+    for (_pid,_role),_games in sorted(_groups.items()):
+        _games.sort(key=lambda r:(r['game_date'],r['game_id']),reverse=True)
+        for _window in (3,5,8):
+            _sample=_games[:_window]
+            if len(_sample)<_window:
+                continue
+            _w.writerow([_pid,_sample[0]['player_name'],_role,_window,len(_sample),_sample[0]['game_date'],_excluded_week]+[round(sum(float(r[m] or 0) for r in _sample)/_window,2) for m in _trend_metrics])
+print('Phase 2 rolling trends generated:',ROOT/'player_rolling_trends.csv')
