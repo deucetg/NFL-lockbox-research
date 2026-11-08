@@ -77,7 +77,7 @@ _groups=_defaultdict(list)
 for _r in _usage:
     if _r['season']!='2026' or not _r['week']:
         continue
-        if int(_r['week'])==_excluded_week and _r['game_id']!='2026_09_JAX_BAL':
+    if int(_r['week'])==_excluded_week and _r['game_id']!='2026_09_JAX_BAL':
         continue
     _groups[(_r['player_id'],_r['role'])].append(_r)
 
