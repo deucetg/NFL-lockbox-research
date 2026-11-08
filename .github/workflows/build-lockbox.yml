@@ -6,6 +6,7 @@ on:
     paths:
       - 'play_by_play_2026.csv.gz'
       - 'build_lockbox.py'
+      - 'score_state_research.py'
       - '.github/workflows/build-lockbox.yml'
 
 jobs:
@@ -20,6 +21,8 @@ jobs:
           python-version: '3.11'
       - name: Build research database
         run: python build_lockbox.py
+      - name: Build game-script research
+        run: python score_state_research.py
       - name: Upload research outputs
         uses: actions/upload-artifact@v4
         with:
@@ -30,3 +33,7 @@ jobs:
             NFL_LOCKBOX_2026/game_coverage.csv
             NFL_LOCKBOX_2026/player_game_usage.csv
             NFL_LOCKBOX_2026/player_rolling_trends.csv
+            NFL_LOCKBOX_2026/qb_score_state_2026.csv
+            NFL_LOCKBOX_2026/receiver_score_state_2026.csv
+            NFL_LOCKBOX_2026/team_score_state_2026.csv
+            NFL_LOCKBOX_2026/score_state_audit_2026.json
