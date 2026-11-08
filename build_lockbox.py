@@ -70,17 +70,18 @@ from collections import defaultdict as _defaultdict
 with (ROOT/'player_game_usage.csv').open(newline='') as _f:
     _usage=list(_csv.DictReader(_f))
 
-# Exclude the most recent week when the uploaded source may be incomplete.
-_weeks=sorted({int(r['week']) for r in _usage if r['week'] and r['season']=='2026'})
-_excluded_week=max(_weeks) if _weeks else None
-_groups=_defaultdict(list)
+# PHASE 3: Include each game with an END GAME source marker.
+with gzip.open(SRC, 'rt', newline='') as _src:
+    _finished_games = {r['game_id'] for r in _csv.DictReader(_src)
+                       if (r.get('desc') or '').strip().upper() == 'END GAME'}
+_excluded_week = None
+_groups = _defaultdict(list)
 for _r in _usage:
-    if _r['season']!='2026' or not _r['week']:
+    if _r['season'] != '2026' or not _r['week']:
         continue
-    if int(_r['week'])==_excluded_week and _r['game_id']!='2026_09_JAX_BAL':
+    if _r['game_id'] not in _finished_games:
         continue
-    _groups[(_r['player_id'],_r['role'])].append(_r)
-
+    _groups[(_r['player_id'], _r['role'])].append(_r)
 _trend_metrics=['targets','receptions','receiving_yards','rush_attempts','rushing_yards','pass_attempts','completions','passing_yards','q1_targets','q1_receptions','q1_receiving_yards','q1_rush_attempts','q1_rushing_yards','q1_pass_attempts','q1_completions','q1_passing_yards']
 with (ROOT/'player_rolling_trends.csv').open('w',newline='') as _f:
     _w=_csv.writer(_f)
