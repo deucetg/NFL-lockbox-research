@@ -29,3 +29,4 @@ jobs:
             NFL_LOCKBOX_2026/audit.json
             NFL_LOCKBOX_2026/game_coverage.csv
             NFL_LOCKBOX_2026/player_game_usage.csv
+            NFL_LOCKBOX_2026/player_rolling_trends.csv
