@@ -18,6 +18,7 @@ on:
       - 'score_state_research.py'
       - 'opportunity_audit.py'
       - 'nfl_advanced_analytics.py'
+      - 'nfl_explosive_dependency.py'
       - '.github/workflows/build-lockbox.yml'
 
   pull_request:
@@ -30,6 +31,7 @@ on:
       - 'score_state_research.py'
       - 'opportunity_audit.py'
       - 'nfl_advanced_analytics.py'
+      - 'nfl_explosive_dependency.py'
       - '.github/workflows/build-lockbox.yml'
 
 permissions:
@@ -75,6 +77,9 @@ jobs:
 
       - name: Build advanced analytics
         run: python nfl_advanced_analytics.py
+
+      - name: Build explosive-play dependency research
+        run: python nfl_explosive_dependency.py
 
       - name: Upload research artifacts
         if: always()
