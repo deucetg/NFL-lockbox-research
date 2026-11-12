@@ -46,8 +46,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install player-matching dependency
-        run: python -m pip install pyreadr
+      - name: Install player-matching dependencies
+        run: python -m pip install pandas pyreadr
 
       - name: Refresh nflverse sources
         run: python refresh_nflverse.py
