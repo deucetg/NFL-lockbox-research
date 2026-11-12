@@ -1,0 +1,102 @@
+
+name: Build NFL LOCKBOX database
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: '30 12 * * *'
+    - cron: '30 18 * * 2,4'
+
+  push:
+    paths:
+      - 'play_by_play_2026.csv.gz'
+      - 'build_lockbox.py'
+      - 'refresh_nflverse.py'
+      - 'import_snap_counts.py'
+      - 'match_player_ids.py'
+      - 'score_state_research.py'
+      - 'opportunity_audit.py'
+      - 'nfl_advanced_analytics.py'
+      - 'nfl_explosive_dependency.py'
+      - 'nfl_defensive_matchups.py'
+      - '.github/workflows/build-lockbox.yml'
+
+  pull_request:
+    paths:
+      - 'play_by_play_2026.csv.gz'
+      - 'build_lockbox.py'
+      - 'refresh_nflverse.py'
+      - 'import_snap_counts.py'
+      - 'match_player_ids.py'
+      - 'score_state_research.py'
+      - 'opportunity_audit.py'
+      - 'nfl_advanced_analytics.py'
+      - 'nfl_explosive_dependency.py'
+      - 'nfl_defensive_matchups.py'
+      - '.github/workflows/build-lockbox.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nfl-lockbox-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install pandas pyreadr
+
+      - name: Refresh nflverse sources
+        run: python refresh_nflverse.py
+
+      - name: Build research database
+        run: python build_lockbox.py
+
+      - name: Import snap counts
+        run: python import_snap_counts.py
+
+      - name: Audit player identity matching
+        run: python match_player_ids.py
+
+      - name: Build game-script research
+        run: python score_state_research.py
+
+      - name: Audit player opportunities
+        run: python opportunity_audit.py
+
+      - name: Build advanced analytics
+        run: python nfl_advanced_analytics.py
+
+      - name: Build explosive-play dependency research
+        run: python nfl_explosive_dependency.py
+
+      - name: Build defensive matchup research
+        run: python nfl_defensive_matchups.py
+
+      - name: Upload research artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-lockbox-research
+          path: |
+            NFL_LOCKBOX_2026/nfl_lockbox_2026.sqlite
+            NFL_LOCKBOX_2026/*.csv
+            NFL_LOCKBOX_2026/*.json
+            NFL_LOCKBOX_2026/source_data/refresh_manifest.json
+            NFL_LOCKBOX_2026/advanced_analytics/*.csv
+            NFL_LOCKBOX_2026/advanced_analytics/*.json
+          if-no-files-found: warn
+          retention-days: 30
