@@ -25,6 +25,7 @@ on:
       - 'nfl_research_rankings.py'
       - 'nfl_injury_lineup_intelligence.py'
       - 'nfl_game_day_availability.py'
+      - 'nfl_official_inactives.py'
       - '.github/workflows/build-lockbox.yml'
 
   pull_request:
@@ -44,6 +45,7 @@ on:
       - 'nfl_research_rankings.py'
       - 'nfl_injury_lineup_intelligence.py'
       - 'nfl_game_day_availability.py'
+      - 'nfl_official_inactives.py'
       - '.github/workflows/build-lockbox.yml'
 
 permissions:
@@ -111,6 +113,9 @@ jobs:
       - name: Build Phase 8A weekly roster availability evidence
         run: python nfl_game_day_availability.py
 
+      - name: Validate Phase 8B official inactive staging
+        run: python nfl_official_inactives.py
+
       - name: Upload research artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -121,6 +126,8 @@ jobs:
             NFL_LOCKBOX_2026/*.csv
             NFL_LOCKBOX_2026/*.json
             NFL_LOCKBOX_2026/source_data/refresh_manifest.json
+            NFL_LOCKBOX_2026/source_data/official_inactives_staging_2026.csv
+            NFL_LOCKBOX_2026/source_data/official_inactives_staging_audit_2026.json
             NFL_LOCKBOX_2026/advanced_analytics/*.csv
             NFL_LOCKBOX_2026/advanced_analytics/*.json
           if-no-files-found: warn
