@@ -22,6 +22,7 @@ on:
       - 'nfl_defensive_matchups.py'
       - 'nfl_defensive_ratings.py'
       - 'nfl_defensive_efficiency.py'
+      - 'nfl_defensive_epa.py'
       - 'nfl_matchup_intelligence.py'
       - 'nfl_schedule_matchups.py'
       - 'nfl_research_rankings.py'
@@ -48,6 +49,7 @@ on:
       - 'nfl_defensive_matchups.py'
       - 'nfl_defensive_ratings.py'
       - 'nfl_defensive_efficiency.py'
+      - 'nfl_defensive_epa.py'
       - 'nfl_matchup_intelligence.py'
       - 'nfl_schedule_matchups.py'
       - 'nfl_research_rankings.py'
@@ -115,6 +117,9 @@ jobs:
 
       - name: Build defensive efficiency research
         run: python nfl_defensive_efficiency.py
+
+      - name: Build defensive EPA and success-rate rankings
+        run: python nfl_defensive_epa.py
 
       - name: Build offense-defense matchup intelligence
         run: python nfl_matchup_intelligence.py
