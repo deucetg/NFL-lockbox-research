@@ -26,6 +26,7 @@ on:
       - 'nfl_injury_lineup_intelligence.py'
       - 'nfl_game_day_availability.py'
       - 'nfl_official_inactives.py'
+      - 'nfl_inactive_reconciliation.py'
       - '.github/workflows/build-lockbox.yml'
 
   pull_request:
@@ -46,6 +47,7 @@ on:
       - 'nfl_injury_lineup_intelligence.py'
       - 'nfl_game_day_availability.py'
       - 'nfl_official_inactives.py'
+      - 'nfl_inactive_reconciliation.py'
       - '.github/workflows/build-lockbox.yml'
 
 permissions:
@@ -115,6 +117,9 @@ jobs:
 
       - name: Validate Phase 8B official inactive staging
         run: python nfl_official_inactives.py
+
+      - name: Reconcile Phase 8B schedule and GSIS identities
+        run: python nfl_inactive_reconciliation.py
 
       - name: Upload research artifacts
         if: always()
