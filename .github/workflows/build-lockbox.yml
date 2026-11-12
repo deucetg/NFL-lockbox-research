@@ -15,11 +15,13 @@ on:
       - 'score_state_research.py'
       - 'opportunity_audit.py'
       - 'refresh_nflverse.py'
+      - 'import_snap_counts.py'
       - '.github/workflows/build-lockbox.yml'
 
   pull_request:
     paths:
       - 'refresh_nflverse.py'
+      - 'import_snap_counts.py'
       - '.github/workflows/build-lockbox.yml'
 
 permissions:
@@ -43,11 +45,13 @@ jobs:
           python-version: '3.11'
 
       - name: Refresh nflverse sources
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: python refresh_nflverse.py
 
       - name: Build research database
         run: python build_lockbox.py
+
+      - name: Import snap counts
+        run: python import_snap_counts.py
 
       - name: Build game-script research
         run: python score_state_research.py
