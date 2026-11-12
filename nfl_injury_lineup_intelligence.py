@@ -1,11 +1,10 @@
 
 #!/usr/bin/env python3
-"""NFL LOCKBOX — Phase 7: Injury & Lineup Intelligence.
+"""NFL LOCKBOX Phase 7.1 — Injury and Offensive Lineup Intelligence.
 
-Research only. Injury reports and depth charts are evidence,
-not confirmation of game-day availability or starting roles.
-
-Uses exact GSIS ID + team matching. Preserves Phase 6 rankings.
+Research-only pipeline. Uses exact team + GSIS ID joins.
+Depth charts do not confirm starters, snaps, or active status.
+Injury reports do not confirm game-day availability.
 """
 
 import argparse
@@ -16,47 +15,64 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-
 SEASON = 2026
+STALE_DAYS = 14
+
+OFFENSE = {"QB", "RB", "WR", "TE", "FB", "HB"}
+SPECIAL = {"KR", "PR", "K", "P", "LS", "RS"}
+
+POSITION_ALIASES = {
+    "HB": "RB",
+    "FB": "RB",
+    "HALFBACK": "RB",
+    "FULLBACK": "RB",
+    "RUNNING BACK": "RB",
+    "WIDE RECEIVER": "WR",
+    "QUARTERBACK": "QB",
+    "TIGHT END": "TE",
+}
+
+EXPECTED_BY_KIND = {
+    "receiving": {"WR", "TE", "RB"},
+    "rushing": {"RB", "QB", "WR"},
+}
 
 
 def read_csv(path):
     opener = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            yield row
+        yield from csv.DictReader(f)
 
 
-def get_header(path):
+def headers(path):
     opener = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8-sig", newline="") as f:
         return csv.DictReader(f).fieldnames or []
 
 
-def column(headers, *names):
-    lookup = {h.lower(): h for h in headers}
+def detect(columns, *names):
+    lookup = {c.lower(): c for c in columns}
     for name in names:
         if name.lower() in lookup:
             return lookup[name.lower()]
     return None
 
 
-def field(row, name):
-    if row is None or name is None:
+def val(row, col):
+    if row is None or col is None:
         return ""
-    return str(row.get(name, "") or "").strip()
+    return str(row.get(col, "") or "").strip()
 
 
-def number(value):
+def integer(raw):
     try:
-        return int(float(value))
-    except (TypeError, ValueError):
+        return int(float(raw))
+    except (ValueError, TypeError):
         return None
 
 
-def parse_date(value):
-    text = str(value or "").strip()
+def date_value(raw):
+    text = str(raw or "").strip()
     if not text:
         return None
 
@@ -74,141 +90,118 @@ def parse_date(value):
     return None
 
 
-def source_spec(headers, kind):
+def normalized_position(raw):
+    position = str(raw or "").strip().upper()
+    return POSITION_ALIASES.get(position, position)
+
+
+def source_schema(columns, kind):
     spec = {
-        "id": column(
-            headers, "gsis_id", "player_gsis_id", "gsis"
-        ),
-        "team": column(
-            headers, "team", "club_code", "team_abbr"
-        ),
-        "week": column(headers, "week", "game_week"),
-        "season": column(
-            headers, "season", "season_year"
-        ),
-        "date": column(
-            headers, "dt", "date",
-            "report_date", "game_date"
-        ),
-        "name": column(
-            headers, "full_name", "player_name", "player"
+        "id": detect(columns, "gsis_id", "player_gsis_id"),
+        "team": detect(columns, "team", "club_code"),
+        "week": detect(columns, "week", "game_week"),
+        "season": detect(columns, "season", "season_year"),
+        "date": detect(
+            columns, "dt", "report_date", "date", "game_date"
         ),
     }
 
     if kind == "injuries":
         spec.update({
-            "report_status": column(
-                headers, "report_status",
-                "game_status", "injury_status"
+            "report_status": detect(
+                columns, "report_status", "game_status"
             ),
-            "practice_status": column(
-                headers, "practice_status",
+            "practice_status": detect(
+                columns, "practice_status",
                 "practice_participation"
             ),
-            "primary_injury": column(
-                headers, "report_primary_injury",
-                "primary_injury", "injury_type"
+            "primary_injury": detect(
+                columns, "report_primary_injury",
+                "primary_injury"
             ),
-            "secondary_injury": column(
-                headers, "report_secondary_injury",
+            "secondary_injury": detect(
+                columns, "report_secondary_injury",
                 "secondary_injury"
             ),
-            "practice_injury": column(
-                headers, "practice_primary_injury"
+            "practice_injury": detect(
+                columns, "practice_primary_injury"
             ),
         })
     else:
         spec.update({
-            "position": column(
-                headers, "pos_abb",
-                "position", "pos_name", "pos"
+            "position": detect(
+                columns, "pos_abb", "position", "pos"
             ),
-            "position_group": column(
-                headers, "pos_grp", "position_group"
+            "group": detect(
+                columns, "pos_grp", "position_group"
             ),
-            "depth": column(
-                headers, "pos_rank", "depth_team",
-                "depth_chart_order", "depth_rank"
+            "rank": detect(
+                columns, "pos_rank", "depth_rank",
+                "depth_team"
             ),
-            "slot": column(
-                headers, "pos_slot", "depth_slot"
+            "slot": detect(
+                columns, "pos_slot", "depth_slot"
             ),
         })
 
     return spec
 
 
-def load_source(path, spec, relevant, label, audit_counts):
-    records = defaultdict(list)
+def load_records(path, spec, relevant, label, counts):
+    result = defaultdict(list)
 
     for row in read_csv(path):
-        audit_counts[label + "_source_rows"] += 1
+        counts[label + "_source_rows"] += 1
 
-        season = number(field(row, spec["season"]))
+        season = integer(val(row, spec["season"]))
         if season is not None and season != SEASON:
             continue
 
-        team = field(row, spec["team"]).upper()
-        pid = field(row, spec["id"])
-        key = (team, pid)
+        key = (
+            val(row, spec["team"]).upper(),
+            val(row, spec["id"]),
+        )
 
         if key not in relevant:
             continue
 
-        report_date = parse_date(field(row, spec["date"]))
-        week = number(field(row, spec["week"]))
-
-        records[key].append({
+        result[key].append({
             "row": row,
-            "date": report_date,
-            "week": week,
+            "week": integer(val(row, spec["week"])),
+            "date": date_value(val(row, spec["date"])),
         })
 
-        audit_counts[label + "_matched_source_rows"] += 1
+        counts[label + "_matched_source_rows"] += 1
 
-    for items in records.values():
-        items.sort(
-            key=lambda x: (
-                x["date"] or date.min,
-                x["week"] if x["week"] is not None else -1,
-            ),
-            reverse=True,
-        )
-
-    return records
+    return result
 
 
-def choose_injury(records, target_week, game_date):
-    """Prefer current-week evidence; otherwise historical only."""
-
+def injury_selection(records, game_week, game_date):
     eligible = []
 
     for item in records:
         week = item["week"]
-        report_date = item["date"]
+        observed = item["date"]
 
         if (
-            target_week is not None
+            game_week is not None
             and week is not None
-            and week > target_week
+            and week > game_week
         ):
             continue
 
         if (
-            report_date is not None
-            and game_date is not None
-            and report_date > game_date
+            game_date is not None
+            and observed is not None
+            and observed > game_date
         ):
             continue
 
         eligible.append(item)
 
     current = [
-        item for item in eligible
-        if (
-            target_week is not None
-            and item["week"] == target_week
-        )
+        x for x in eligible
+        if game_week is not None and x["week"] == game_week
     ]
 
     if current:
@@ -219,19 +212,18 @@ def choose_injury(records, target_week, game_date):
         return current[0], "CURRENT_GAME_WEEK"
 
     historical = [
-        item for item in eligible
+        x for x in eligible
         if (
-            target_week is not None
-            and item["week"] is not None
-            and item["week"] < target_week
+            game_week is not None
+            and x["week"] is not None
+            and x["week"] < game_week
         )
     ]
 
     if historical:
         historical.sort(
             key=lambda x: (
-                x["week"],
-                x["date"] or date.min,
+                x["week"], x["date"] or date.min
             ),
             reverse=True,
         )
@@ -240,45 +232,70 @@ def choose_injury(records, target_week, game_date):
     return None, "UNKNOWN"
 
 
-def choose_depth(records, game_date):
-    """Use latest dated snapshot not after the game."""
-
-    eligible = []
-
-    for item in records:
-        snapshot = item["date"]
-
-        if snapshot is None:
-            continue
-
-        if game_date is None or snapshot > game_date:
-            continue
-
-        eligible.append(item)
+def depth_selection(records, game_date, spec, player_position):
+    eligible = [
+        x for x in records
+        if (
+            game_date is not None
+            and x["date"] is not None
+            and x["date"] <= game_date
+        )
+    ]
 
     if not eligible:
-        return None, "UNKNOWN"
+        return None, "UNKNOWN", None
 
+    # A newer snapshot supersedes older snapshots.
     latest_date = max(x["date"] for x in eligible)
     latest = [
         x for x in eligible if x["date"] == latest_date
     ]
 
-    # Preserve an actual depth entry, without asserting starter.
-    latest.sort(
-        key=lambda x: (
-            number(
-                field(x["row"], DEPTH_SPEC["depth"])
-            )
-            if number(
-                field(x["row"], DEPTH_SPEC["depth"])
-            ) is not None
-            else 999,
-            field(x["row"], DEPTH_SPEC["position"]),
-        )
-    )
+    offensive = []
 
-    return latest[0], "DATED_SNAPSHOT"
+    for item in latest:
+        row = item["row"]
+        pos = normalized_position(val(row, spec["position"]))
+        group = normalized_position(val(row, spec["group"]))
+
+        if pos in OFFENSE or group in OFFENSE:
+            offensive.append(item)
+
+    def priority(item):
+        row = item["row"]
+        pos = normalized_position(val(row, spec["position"]))
+        group = normalized_position(val(row, spec["group"]))
+        rank = integer(val(row, spec["rank"]))
+
+        return (
+            0 if pos == player_position else 1,
+            0 if pos in OFFENSE else 1,
+            0 if group == player_position else 1,
+            rank if rank is not None else 999,
+            pos,
+            val(row, spec["slot"]),
+        )
+
+    if offensive:
+        offensive.sort(key=priority)
+        chosen = offensive[0]
+        category = "OFFENSIVE_POSITION"
+    else:
+        latest.sort(key=priority)
+        chosen = latest[0]
+        category = "NO_OFFENSIVE_POSITION"
+
+    age = (game_date - latest_date).days
+    return chosen, category, age
+
+
+def candidate_identity(row):
+    return (
+        row["game_id"],
+        row["offense"],
+        row["player_id"],
+        row["kind"],
+    )
 
 
 def main():
@@ -290,66 +307,66 @@ def main():
 
     root = Path(args.root)
     source = root / "source_data"
-    output_dir = root / "advanced_analytics"
+    outdir = root / "advanced_analytics"
 
-    ranking_path = (
-        output_dir / "upcoming_research_rankings_2026.csv"
+    ranking_file = (
+        outdir / "upcoming_research_rankings_2026.csv"
     )
-    injury_path = source / "injuries_2026.csv.gz"
-    depth_path = source / "depth_charts_2026.csv.gz"
+    injury_file = source / "injuries_2026.csv.gz"
+    depth_file = source / "depth_charts_2026.csv.gz"
 
-    for path in (ranking_path, injury_path, depth_path):
+    for path in (ranking_file, injury_file, depth_file):
         if not path.is_file():
-            raise SystemExit(f"Missing input: {path}")
+            raise SystemExit(f"Missing input file: {path}")
 
-    rankings = list(read_csv(ranking_path))
+    rankings = list(read_csv(ranking_file))
 
     if not rankings:
         raise SystemExit("Phase 6 rankings are empty")
 
     required = {
         "game_id", "game_date", "week", "offense",
-        "player_id", "player_name", "kind",
+        "player_id", "player_name", "position", "kind",
         "research_priority_index",
     }
 
     missing = required - set(rankings[0])
-
     if missing:
         raise SystemExit(
-            f"Missing ranking columns: {sorted(missing)}"
+            f"Missing Phase 6 columns: {sorted(missing)}"
         )
 
-    injury_headers = get_header(injury_path)
-    depth_headers = get_header(depth_path)
+    source_ids = [
+        candidate_identity(row) for row in rankings
+    ]
 
-    injury_spec = source_spec(
-        injury_headers, "injuries"
-    )
-    depth_spec = source_spec(
-        depth_headers, "depth_charts"
-    )
+    if len(source_ids) != len(set(source_ids)):
+        raise SystemExit(
+            "Duplicate game/team/player/kind identities "
+            "in Phase 6 rankings"
+        )
 
-    global DEPTH_SPEC
-    DEPTH_SPEC = depth_spec
+    injury_columns = headers(injury_file)
+    depth_columns = headers(depth_file)
+
+    ispec = source_schema(injury_columns, "injuries")
+    dspec = source_schema(depth_columns, "depth_charts")
 
     for label, spec in (
-        ("injuries", injury_spec),
-        ("depth_charts", depth_spec),
+        ("injuries", ispec),
+        ("depth_charts", dspec),
     ):
         if not spec["id"] or not spec["team"]:
             raise SystemExit(
-                f"{label}: exact GSIS/team join unavailable"
+                f"{label} missing exact ID/team join fields"
             )
 
-    if not injury_spec["week"]:
-        raise SystemExit(
-            "Injury data lacks a week column"
-        )
+    if not ispec["week"]:
+        raise SystemExit("Injury report week missing")
 
-    if not depth_spec["date"]:
+    if not dspec["date"] or not dspec["position"]:
         raise SystemExit(
-            "Depth charts lack a snapshot date column"
+            "Depth-chart date or position column missing"
         )
 
     relevant = {
@@ -362,105 +379,134 @@ def main():
 
     counts = Counter()
 
-    injuries = load_source(
-        injury_path, injury_spec, relevant,
-        "injuries", counts
+    injuries = load_records(
+        injury_file, ispec, relevant, "injuries", counts
     )
-    depths = load_source(
-        depth_path, depth_spec, relevant,
-        "depth_charts", counts
+    depths = load_records(
+        depth_file, dspec, relevant, "depth_charts", counts
     )
 
-    results = []
+    output = []
     flags_count = Counter()
     injury_freshness = Counter()
-    depth_freshness = Counter()
+    depth_types = Counter()
+    depth_age_bands = Counter()
     designations = Counter()
-    unique_injury_players = set()
-    unique_depth_players = set()
+    unique_injury = set()
+    unique_depth = set()
 
-    for ranking in rankings:
-        entry = dict(ranking)
+    for row in rankings:
+        entry = dict(row)
 
         key = (
-            ranking["offense"].strip().upper(),
-            ranking["player_id"].strip(),
+            row["offense"].strip().upper(),
+            row["player_id"].strip(),
         )
 
-        game_date = parse_date(ranking["game_date"])
-        game_week = number(ranking["week"])
+        game_date = date_value(row["game_date"])
+        game_week = integer(row["week"])
 
-        injury, injury_class = choose_injury(
-            injuries.get(key, []),
-            game_week,
-            game_date,
+        if game_date is None or game_week is None:
+            raise SystemExit(
+                f"Invalid game date/week: {row['game_id']}"
+            )
+
+        player_position = normalized_position(
+            row["position"]
         )
 
-        depth, depth_class = choose_depth(
+        injury, injury_type = injury_selection(
+            injuries.get(key, []), game_week, game_date
+        )
+
+        depth, depth_type, age = depth_selection(
             depths.get(key, []),
             game_date,
+            dspec,
+            player_position,
         )
 
-        injury_row = injury["row"] if injury else None
-        depth_row = depth["row"] if depth else None
+        ir = injury["row"] if injury else None
+        dr = depth["row"] if depth else None
 
-        injury_freshness[injury_class] += 1
-        depth_freshness[depth_class] += 1
+        injury_freshness[injury_type] += 1
+        depth_types[depth_type] += 1
 
         if injury:
-            unique_injury_players.add(key)
+            unique_injury.add(key)
 
         if depth:
-            unique_depth_players.add(key)
-
-        report_status = field(
-            injury_row, injury_spec["report_status"]
-        )
-        practice_status = field(
-            injury_row, injury_spec["practice_status"]
-        )
+            unique_depth.add(key)
 
         flags = []
 
-        if injury_class == "UNKNOWN":
+        if injury_type == "UNKNOWN":
             flags.append("NO_ELIGIBLE_INJURY_REPORT")
-        elif injury_class == "HISTORICAL":
+        elif injury_type == "HISTORICAL":
             flags.append("HISTORICAL_INJURY_ONLY")
 
-        if depth_class == "UNKNOWN":
-            flags.append("NO_ELIGIBLE_DATED_DEPTH_CHART")
+        status = val(ir, ispec["report_status"])
+        practice = val(ir, ispec["practice_status"])
 
-        if injury_class == "CURRENT_GAME_WEEK":
-            status = report_status.lower()
+        if injury_type == "CURRENT_GAME_WEEK":
+            normalized_status = status.lower()
 
-            if status in (
+            if normalized_status in (
                 "out", "doubtful", "questionable"
             ):
                 flags.append(
                     "CURRENT_WEEK_REPORTED_"
-                    + status.upper()
+                    + normalized_status.upper()
                 )
-
-            elif report_status:
+            elif status:
                 flags.append(
                     "CURRENT_WEEK_DESIGNATION_REVIEW"
                 )
 
-            practice_lower = practice_status.lower()
-
             if any(
-                term in practice_lower
-                for term in (
-                    "did not", "dnp", "limited"
-                )
+                x in practice.lower()
+                for x in ("did not", "dnp", "limited")
             ):
                 flags.append(
                     "CURRENT_WEEK_PRACTICE_CONCERN"
                 )
 
             designations[
-                report_status or "NOT_SPECIFIED"
+                status or "NOT_SPECIFIED"
             ] += 1
+
+        if depth is None:
+            flags.append("NO_ELIGIBLE_DATED_DEPTH_CHART")
+            depth_age_bands["UNKNOWN"] += 1
+        else:
+            if depth_type == "NO_OFFENSIVE_POSITION":
+                flags.append(
+                    "NO_OFFENSIVE_DEPTH_POSITION"
+                )
+
+            if age > STALE_DAYS:
+                flags.append(
+                    "STALE_DEPTH_SNAPSHOT_GT_14_DAYS"
+                )
+                depth_age_bands["OVER_14_DAYS"] += 1
+            elif age <= 7:
+                depth_age_bands["0_TO_7_DAYS"] += 1
+            else:
+                depth_age_bands["8_TO_14_DAYS"] += 1
+
+        depth_position = normalized_position(
+            val(dr, dspec["position"])
+        )
+
+        if (
+            depth_type == "OFFENSIVE_POSITION"
+            and player_position in OFFENSE
+            and depth_position in OFFENSE
+            and depth_position != player_position
+        ):
+            flags.append(
+                "DEPTH_POSITION_DIFFERS_FROM_RANKING"
+            )
 
         flags.extend([
             "GAME_DAY_ACTIVE_STATUS_UNVERIFIED",
@@ -472,7 +518,7 @@ def main():
 
         entry.update({
             "injury_report_matched": int(bool(injury)),
-            "injury_evidence_freshness": injury_class,
+            "injury_evidence_freshness": injury_type,
             "injury_report_week": (
                 injury["week"] if injury else ""
             ),
@@ -480,38 +526,44 @@ def main():
                 injury["date"].isoformat()
                 if injury and injury["date"] else ""
             ),
-            "reported_game_status": report_status,
-            "reported_practice_status": practice_status,
-            "reported_primary_injury": field(
-                injury_row,
-                injury_spec["primary_injury"]
+            "reported_game_status": status,
+            "reported_practice_status": practice,
+            "reported_primary_injury": val(
+                ir, ispec["primary_injury"]
             ),
-            "reported_secondary_injury": field(
-                injury_row,
-                injury_spec["secondary_injury"]
+            "reported_secondary_injury": val(
+                ir, ispec["secondary_injury"]
             ),
-            "reported_practice_injury": field(
-                injury_row,
-                injury_spec["practice_injury"]
+            "reported_practice_injury": val(
+                ir, ispec["practice_injury"]
             ),
             "depth_chart_matched": int(bool(depth)),
-            "depth_evidence_freshness": depth_class,
+            "depth_evidence_freshness": (
+                "DATED_SNAPSHOT" if depth else "UNKNOWN"
+            ),
+            "depth_chart_selection_type": depth_type,
             "depth_chart_date": (
                 depth["date"].isoformat()
-                if depth and depth["date"] else ""
+                if depth else ""
             ),
-            "depth_chart_position": field(
-                depth_row, depth_spec["position"]
+            "depth_chart_age_days": (
+                age if age is not None else ""
             ),
-            "depth_chart_position_group": field(
-                depth_row,
-                depth_spec["position_group"]
+            "depth_chart_stale": (
+                int(age > STALE_DAYS)
+                if age is not None else ""
             ),
-            "depth_chart_order_as_reported": field(
-                depth_row, depth_spec["depth"]
+            "depth_chart_position": val(
+                dr, dspec["position"]
             ),
-            "depth_chart_slot_as_reported": field(
-                depth_row, depth_spec["slot"]
+            "depth_chart_position_group": val(
+                dr, dspec["group"]
+            ),
+            "depth_chart_order_as_reported": val(
+                dr, dspec["rank"]
+            ),
+            "depth_chart_slot_as_reported": val(
+                dr, dspec["slot"]
             ),
             "availability_status": (
                 "UNVERIFIED_NO_OFFICIAL_GAME_DAY_INACTIVES"
@@ -522,107 +574,146 @@ def main():
             "lineup_research_flags": "|".join(flags),
         })
 
-        results.append(entry)
+        output.append(entry)
 
-    if len(results) != len(rankings):
+    # Fail the build if row identity or ordering changes.
+    output_ids = [
+        candidate_identity(row) for row in output
+    ]
+
+    if output_ids != source_ids:
         raise SystemExit(
-            "Phase 7 row count differs from Phase 6"
+            "Phase 7.1 changed Phase 6 candidate identities"
         )
 
-    output_dir.mkdir(
-        parents=True, exist_ok=True
+    if sum(injury_freshness.values()) != len(output):
+        raise SystemExit("Injury freshness count mismatch")
+
+    if sum(depth_types.values()) != len(output):
+        raise SystemExit("Depth selection count mismatch")
+
+    if sum(depth_age_bands.values()) != len(output):
+        raise SystemExit("Depth age count mismatch")
+
+    for row in output:
+        if (
+            row["depth_chart_selection_type"]
+            == "OFFENSIVE_POSITION"
+            and normalized_position(
+                row["depth_chart_position"]
+            ) not in OFFENSE
+            and normalized_position(
+                row["depth_chart_position_group"]
+            ) not in OFFENSE
+        ):
+            raise SystemExit(
+                "Non-offensive entry incorrectly classified"
+            )
+
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    output_file = (
+        outdir / "injury_lineup_research_2026.csv"
     )
 
-    csv_path = (
-        output_dir / "injury_lineup_research_2026.csv"
-    )
-
-    with csv_path.open(
+    with output_file.open(
         "w", newline="", encoding="utf-8"
     ) as f:
         writer = csv.DictWriter(
-            f, fieldnames=list(results[0])
+            f, fieldnames=list(output[0])
         )
         writer.writeheader()
-        writer.writerows(results)
+        writer.writerows(output)
 
     audit = {
         "phase": 7,
-        "version": "schema_repair_v2",
+        "subphase": "7.1",
+        "version": "offensive_depth_v3",
         "season": SEASON,
         "generated_utc": datetime.now(
             timezone.utc
         ).isoformat(),
         "status": "OK",
         "phase6_input_rows": len(rankings),
-        "phase7_output_rows": len(results),
-        "row_count_preserved": (
-            len(rankings) == len(results)
-        ),
+        "phase7_output_rows": len(output),
+        "row_count_preserved": True,
+        "candidate_identity_preserved": True,
         "distinct_candidate_team_player_pairs": len(
             relevant
         ),
         "source_headers": {
-            "injuries": injury_headers,
-            "depth_charts": depth_headers,
+            "injuries": injury_columns,
+            "depth_charts": depth_columns,
         },
         "detected_columns": {
-            "injuries": injury_spec,
-            "depth_charts": depth_spec,
+            "injuries": ispec,
+            "depth_charts": dspec,
         },
         "source_counts": dict(counts),
         "injury_freshness_candidate_rows": dict(
             injury_freshness
         ),
-        "depth_freshness_candidate_rows": dict(
-            depth_freshness
+        "depth_selection_candidate_rows": dict(
+            depth_types
+        ),
+        "depth_age_candidate_rows": dict(
+            depth_age_bands
         ),
         "current_week_report_designations": dict(
             designations
         ),
         "matched_unique_injury_team_player_pairs": len(
-            unique_injury_players
+            unique_injury
         ),
         "matched_unique_depth_team_player_pairs": len(
-            unique_depth_players
+            unique_depth
         ),
         "research_flags": dict(flags_count),
+        "validation": {
+            "row_count": "PASS",
+            "candidate_identity": "PASS",
+            "injury_count_totals": "PASS",
+            "depth_selection_totals": "PASS",
+            "depth_age_totals": "PASS",
+            "offensive_position_classification": "PASS",
+        },
         "limitations": [
-            "Current-week means matching game week, "
-            "not confirmed current-day availability.",
-            "Injury source lacks a report date when "
-            "the source schema provides none.",
-            "Historical injury statuses must not "
-            "be interpreted as current statuses.",
-            "A missing report does not establish health.",
-            "Depth charts are dated snapshots, "
-            "not confirmed starters or snap shares.",
-            "Depth-chart snapshots after the game "
-            "are excluded.",
-            "Exact team and GSIS ID matching only.",
-            "No official inactive or starter feed "
-            "is integrated in this phase.",
-            "No odds, wagers or betting tickets.",
+            "Depth charts are snapshots, not confirmed "
+            "starters, routes, snaps, or active status.",
+            "Offensive position is prioritized within "
+            "the latest eligible dated snapshot.",
+            "Special-teams-only depth matches are "
+            "flagged, not used as offensive evidence.",
+            "Snapshots older than 14 days are flagged.",
+            "Current-week injury evidence is not "
+            "confirmed game-day availability.",
+            "The injury source may lack report dates.",
+            "Historical injury statuses are not "
+            "treated as current statuses.",
+            "Missing reports do not prove health.",
+            "Exact GSIS ID and team joins only.",
+            "No betting odds, wagers, or tickets.",
         ],
     }
 
-    audit_path = (
-        output_dir / "injury_lineup_audit_2026.json"
+    audit_file = (
+        outdir / "injury_lineup_audit_2026.json"
     )
 
-    audit_path.write_text(
-        json.dumps(audit, indent=2, default=str) + "\n",
+    audit_file.write_text(
+        json.dumps(audit, indent=2) + "\n",
         encoding="utf-8",
     )
 
     print(json.dumps({
         "status": "OK",
-        "phase": 7,
-        "version": "schema_repair_v2",
-        "candidate_rows": len(results),
+        "version": "offensive_depth_v3",
+        "candidate_rows": len(output),
         "injury_freshness": dict(injury_freshness),
-        "depth_freshness": dict(depth_freshness),
+        "depth_selection": dict(depth_types),
+        "depth_age": dict(depth_age_bands),
         "flags": dict(flags_count),
+        "validation": audit["validation"],
     }, indent=2))
 
 
