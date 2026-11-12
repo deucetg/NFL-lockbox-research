@@ -17,6 +17,7 @@ on:
       - 'refresh_nflverse.py'
       - 'import_snap_counts.py'
       - 'match_player_ids.py'
+      - 'nfl_advanced_analytics.py'
       - '.github/workflows/build-lockbox.yml'
 
   pull_request:
@@ -24,6 +25,7 @@ on:
       - 'refresh_nflverse.py'
       - 'import_snap_counts.py'
       - 'match_player_ids.py'
+      - 'nfl_advanced_analytics.py'
       - '.github/workflows/build-lockbox.yml'
 
 permissions:
@@ -67,6 +69,9 @@ jobs:
       - name: Audit player opportunities
         run: python opportunity_audit.py
 
+      - name: Build advanced analytics
+        run: python nfl_advanced_analytics.py
+
       - name: Upload research artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -76,4 +81,6 @@ jobs:
             NFL_LOCKBOX_2026/*.csv
             NFL_LOCKBOX_2026/*.json
             NFL_LOCKBOX_2026/source_data/refresh_manifest.json
+            NFL_LOCKBOX_2026/advanced_analytics/*.csv
+            NFL_LOCKBOX_2026/advanced_analytics/*.json
           if-no-files-found: error
