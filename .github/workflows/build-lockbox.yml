@@ -21,6 +21,7 @@ on:
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
       - 'nfl_matchup_intelligence.py'
+      - 'nfl_schedule_matchups.py'
       - '.github/workflows/build-lockbox.yml'
 
   pull_request:
@@ -36,6 +37,7 @@ on:
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
       - 'nfl_matchup_intelligence.py'
+      - 'nfl_schedule_matchups.py'
       - '.github/workflows/build-lockbox.yml'
 
 permissions:
@@ -90,6 +92,9 @@ jobs:
 
       - name: Build offense-defense matchup intelligence
         run: python nfl_matchup_intelligence.py
+
+      - name: Build actual scheduled matchup research
+        run: python nfl_schedule_matchups.py
 
       - name: Upload research artifacts
         if: always()
