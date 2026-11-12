@@ -29,6 +29,7 @@ on:
       - 'nfl_inactive_reconciliation.py'
       - 'nfl_official_source_collector.py'
       - 'nfl_official_inactive_extractor.py'
+      - 'nfl_official_evidence_validator.py'
       - '.github/workflows/build-lockbox.yml'
 
   pull_request:
@@ -52,6 +53,7 @@ on:
       - 'nfl_inactive_reconciliation.py'
       - 'nfl_official_source_collector.py'
       - 'nfl_official_inactive_extractor.py'
+      - 'nfl_official_evidence_validator.py'
       - '.github/workflows/build-lockbox.yml'
 
 permissions:
@@ -134,6 +136,10 @@ jobs:
       - name: Extract Phase 8B official inactive preview
         if: github.event_name == 'workflow_dispatch'
         run: python nfl_official_inactive_extractor.py
+
+      - name: Validate Phase 8B official evidence consistency
+        if: github.event_name == 'workflow_dispatch'
+        run: python nfl_official_evidence_validator.py
 
       - name: Upload research artifacts
         if: always()
