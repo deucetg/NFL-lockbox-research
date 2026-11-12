@@ -26,6 +26,7 @@ on:
       - 'nfl_coverage_source_audit.py'
       - 'nfl_ftn_charting_importer.py'
       - 'nfl_ftn_defensive_intelligence.py'
+      - 'nfl_ftn_defensive_vulnerability.py'
       - 'nfl_matchup_intelligence.py'
       - 'nfl_schedule_matchups.py'
       - 'nfl_research_rankings.py'
@@ -56,6 +57,7 @@ on:
       - 'nfl_coverage_source_audit.py'
       - 'nfl_ftn_charting_importer.py'
       - 'nfl_ftn_defensive_intelligence.py'
+      - 'nfl_ftn_defensive_vulnerability.py'
       - 'nfl_matchup_intelligence.py'
       - 'nfl_schedule_matchups.py'
       - 'nfl_research_rankings.py'
@@ -135,6 +137,9 @@ jobs:
 
       - name: Build FTN defensive intelligence
         run: python nfl_ftn_defensive_intelligence.py
+
+      - name: Build FTN defensive vulnerability intelligence
+        run: python nfl_ftn_defensive_vulnerability.py
 
       - name: Build offense-defense matchup intelligence
         run: python nfl_matchup_intelligence.py
