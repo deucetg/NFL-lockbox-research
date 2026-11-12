@@ -27,6 +27,7 @@ on:
       - 'nfl_game_day_availability.py'
       - 'nfl_official_inactives.py'
       - 'nfl_inactive_reconciliation.py'
+      - 'nfl_official_source_collector.py'
       - '.github/workflows/build-lockbox.yml'
 
   pull_request:
@@ -48,6 +49,7 @@ on:
       - 'nfl_game_day_availability.py'
       - 'nfl_official_inactives.py'
       - 'nfl_inactive_reconciliation.py'
+      - 'nfl_official_source_collector.py'
       - '.github/workflows/build-lockbox.yml'
 
 permissions:
@@ -121,6 +123,12 @@ jobs:
       - name: Reconcile Phase 8B schedule and GSIS identities
         run: python nfl_inactive_reconciliation.py
 
+      - name: Test Phase 8B official NFL source collection
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python nfl_official_source_collector.py \
+            --url "https://www.nfl.com/news/nfl-week-9-inactives-players-ruled-out-sunday-2026-season"
+
       - name: Upload research artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -133,6 +141,8 @@ jobs:
             NFL_LOCKBOX_2026/source_data/refresh_manifest.json
             NFL_LOCKBOX_2026/source_data/official_inactives_staging_2026.csv
             NFL_LOCKBOX_2026/source_data/official_inactives_staging_audit_2026.json
+            NFL_LOCKBOX_2026/source_data/official_inactive_evidence/*.html
+            NFL_LOCKBOX_2026/source_data/official_inactive_evidence/*.json
             NFL_LOCKBOX_2026/advanced_analytics/*.csv
             NFL_LOCKBOX_2026/advanced_analytics/*.json
           if-no-files-found: warn
