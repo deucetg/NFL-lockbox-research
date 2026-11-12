@@ -23,6 +23,7 @@ on:
       - 'nfl_matchup_intelligence.py'
       - 'nfl_schedule_matchups.py'
       - 'nfl_research_rankings.py'
+      - 'nfl_injury_lineup_intelligence.py'
       - '.github/workflows/build-lockbox.yml'
 
   pull_request:
@@ -40,6 +41,7 @@ on:
       - 'nfl_matchup_intelligence.py'
       - 'nfl_schedule_matchups.py'
       - 'nfl_research_rankings.py'
+      - 'nfl_injury_lineup_intelligence.py'
       - '.github/workflows/build-lockbox.yml'
 
 permissions:
@@ -100,6 +102,9 @@ jobs:
 
       - name: Build automated research rankings
         run: python nfl_research_rankings.py
+
+      - name: Build injury and lineup intelligence
+        run: python nfl_injury_lineup_intelligence.py
 
       - name: Upload research artifacts
         if: always()
