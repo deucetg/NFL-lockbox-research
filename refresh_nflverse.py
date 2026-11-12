@@ -1,9 +1,19 @@
 
 #!/usr/bin/env python3
-"""Download and validate 2026 nflverse datasets for NFL LOCKBOX."""
+"""
+NFL LOCKBOX — Automated nflverse Source Refresh
+
+Phase 8A upgrade:
+- Preserve existing research downloads
+- Add 2026 weekly roster evidence
+- Validate downloaded CSVs
+- Record source status and download timestamps
+- Never interpret roster status as game-day status
+"""
 
 import csv
 import gzip
+import hashlib
 import io
 import json
 from datetime import datetime, timezone
@@ -11,16 +21,40 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 YEAR = "2026"
-BASE = "https://github.com/nflverse/nflverse-data/releases/download"
+
+BASE = (
+    "https://github.com/nflverse/"
+    "nflverse-data/releases/download"
+)
+
 OUT = Path("NFL_LOCKBOX_2026/source_data")
 OUT.mkdir(parents=True, exist_ok=True)
 
 SOURCES = {
-    "pbp": ("pbp", "play_by_play_2026.csv.gz"),
-    "snap_counts": ("snap_counts", "snap_counts_2026.csv.gz"),
-    "injuries": ("injuries", "injuries_2026.csv.gz"),
-    "depth_charts": ("depth_charts", "depth_charts_2026.csv.gz"),
-    "ftn_charting": ("ftn_charting", "ftn_charting_2026.csv"),
+    "pbp": (
+        "pbp",
+        "play_by_play_2026.csv.gz",
+    ),
+    "snap_counts": (
+        "snap_counts",
+        "snap_counts_2026.csv.gz",
+    ),
+    "injuries": (
+        "injuries",
+        "injuries_2026.csv.gz",
+    ),
+    "depth_charts": (
+        "depth_charts",
+        "depth_charts_2026.csv.gz",
+    ),
+    "ftn_charting": (
+        "ftn_charting",
+        "ftn_charting_2026.csv",
+    ),
+    "weekly_rosters": (
+        "weekly_rosters",
+        "weekly_rosters_2026.csv.gz",
+    ),
 }
 
 REQUIRED_PBP = {
@@ -36,114 +70,269 @@ REQUIRED_PBP = {
     "rush_attempt",
 }
 
-manifest = {
-    "downloaded_at_utc": datetime.now(timezone.utc).isoformat(),
-    "season": YEAR,
-    "sources": {},
+REQUIRED_ROSTER_GROUPS = {
+    "player_id": {
+        "gsis_id",
+        "player_gsis_id",
+        "gsis",
+    },
+    "team": {
+        "team",
+        "team_abbr",
+        "club_code",
+        "recent_team",
+    },
+    "season": {"season", "season_year"},
+    "week": {"week", "game_week"},
+    "status": {"status", "roster_status"},
 }
 
-for key, (release, filename) in SOURCES.items():
+
+def utc_now():
+    return datetime.now(
+        timezone.utc
+    ).isoformat()
+
+
+def validate_roster_columns(columns):
+    for label, choices in REQUIRED_ROSTER_GROUPS.items():
+        if not (columns & choices):
+            raise ValueError(
+                "Weekly rosters missing required "
+                f"{label} column; found: "
+                f"{sorted(columns)}"
+            )
+
+
+def download_source(key, release, filename):
     url = f"{BASE}/{release}/{filename}"
-    print(f"Downloading {key}: {url}", flush=True)
 
-    try:
-        request = Request(
-            url,
-            headers={"User-Agent": "NFL-LOCKBOX/1.0"},
+    print(
+        f"Downloading {key}: {url}",
+        flush=True,
+    )
+
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "NFL-LOCKBOX/1.0",
+            "Accept": "application/octet-stream",
+        },
+    )
+
+    with urlopen(request, timeout=180) as response:
+        payload = response.read()
+
+    if len(payload) < 100:
+        raise ValueError(
+            "Downloaded file unexpectedly small"
         )
 
-        with urlopen(request, timeout=180) as response:
-            payload = response.read()
+    raw = (
+        gzip.decompress(payload)
+        if filename.endswith(".gz")
+        else payload
+    )
 
-        if len(payload) < 100:
-            raise ValueError("File unexpectedly small")
+    decoded = raw.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(decoded))
 
-        raw = (
-            gzip.decompress(payload)
-            if filename.endswith(".gz")
-            else payload
+    columns = set(reader.fieldnames or [])
+
+    if not columns:
+        raise ValueError("CSV header missing")
+
+    if key == "pbp":
+        missing = REQUIRED_PBP - columns
+        if missing:
+            raise ValueError(
+                f"PBP missing columns: {sorted(missing)}"
+            )
+
+    if key == "weekly_rosters":
+        validate_roster_columns(columns)
+
+    rows = 0
+    games = set()
+    dates = set()
+    seasons = set()
+    weeks = set()
+
+    for row in reader:
+        rows += 1
+
+        game_id = row.get("game_id")
+        game_date = row.get("game_date")
+
+        if game_id:
+            games.add(game_id)
+
+        if game_date:
+            dates.add(game_date)
+
+        season = row.get(
+            "season",
+            row.get("season_year", ""),
         )
 
-        text = raw.decode("utf-8-sig")
-        reader = csv.DictReader(io.StringIO(text))
-        columns = set(reader.fieldnames or [])
+        week = row.get(
+            "week",
+            row.get("game_week", ""),
+        )
 
-        if not columns:
-            raise ValueError("CSV header missing")
+        if season:
+            seasons.add(str(season).strip())
 
-        if key == "pbp":
-            missing = REQUIRED_PBP - columns
-            if missing:
-                raise ValueError(
-                    f"Missing PBP columns: {missing}"
+        if week:
+            weeks.add(str(week).strip())
+
+    if rows == 0:
+        raise ValueError("No data rows")
+
+    if key == "pbp":
+        if not any(
+            game.startswith("2026_")
+            for game in games
+        ):
+            raise ValueError(
+                "No 2026 game IDs found"
+            )
+
+    if key == "weekly_rosters":
+        if YEAR not in seasons:
+            raise ValueError(
+                "Weekly rosters contain no "
+                "2026 season records"
+            )
+
+    destination = (
+        Path(filename)
+        if key == "pbp"
+        else OUT / filename
+    )
+
+    # Write only after validation succeeds.
+    destination.write_bytes(payload)
+
+    return {
+        "status": "verified",
+        "url": url,
+        "file": str(destination),
+        "downloaded_at_utc": utc_now(),
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(
+            payload
+        ).hexdigest(),
+        "rows": rows,
+        "games": len(games),
+        "latest_game_date": (
+            max(dates) if dates else None
+        ),
+        "seasons": sorted(seasons),
+        "weeks": sorted(
+            weeks,
+            key=lambda x: (
+                int(x) if x.isdigit() else 999
+            ),
+        ),
+        "columns": sorted(columns),
+    }
+
+
+def main():
+    manifest = {
+        "season": YEAR,
+        "refresh_version": "phase8a_weekly_rosters_v1",
+        "started_at_utc": utc_now(),
+        "sources": {},
+    }
+
+    for key, (release, filename) in SOURCES.items():
+        try:
+            result = download_source(
+                key,
+                release,
+                filename,
+            )
+
+            manifest["sources"][key] = result
+
+            print(
+                f"Verified {key}: "
+                f"{result['rows']} rows",
+                flush=True,
+            )
+
+        except Exception as error:
+            destination = (
+                Path(filename)
+                if key == "pbp"
+                else OUT / filename
+            )
+
+            # Prevent an old local file from being
+            # mistaken for a fresh successful refresh.
+            if destination.exists():
+                destination.unlink()
+
+            manifest["sources"][key] = {
+                "status": "failed",
+                "url": (
+                    f"{BASE}/{release}/{filename}"
+                ),
+                "checked_at_utc": utc_now(),
+                "error": str(error),
+            }
+
+            print(
+                f"FAILED {key}: {error}",
+                flush=True,
+            )
+
+            if key == "pbp":
+                manifest["completed_at_utc"] = utc_now()
+
+                (
+                    OUT / "refresh_manifest.json"
+                ).write_text(
+                    json.dumps(
+                        manifest,
+                        indent=2,
+                    ) + "\n",
+                    encoding="utf-8",
                 )
 
-        rows = 0
-        games = set()
-        dates = set()
+                raise
 
-        for row in reader:
-            rows += 1
+    manifest["completed_at_utc"] = utc_now()
 
-            if row.get("game_id"):
-                games.add(row["game_id"])
+    manifest["weekly_roster_ready"] = (
+        manifest["sources"]
+        .get("weekly_rosters", {})
+        .get("status") == "verified"
+    )
 
-            if row.get("game_date"):
-                dates.add(row["game_date"])
+    (
+        OUT / "refresh_manifest.json"
+    ).write_text(
+        json.dumps(
+            manifest,
+            indent=2,
+        ) + "\n",
+        encoding="utf-8",
+    )
 
-        if rows == 0:
-            raise ValueError("No data rows")
+    print(
+        "NFL LOCKBOX source refresh complete.",
+        flush=True,
+    )
 
-        if key == "pbp":
-            if not any(
-                game.startswith("2026_")
-                for game in games
-            ):
-                raise ValueError("No 2026 game IDs found")
+    print(
+        "Weekly roster source ready:",
+        manifest["weekly_roster_ready"],
+        flush=True,
+    )
 
-            destination = Path(filename)
-        else:
-            destination = OUT / filename
 
-        destination.write_bytes(payload)
-
-        manifest["sources"][key] = {
-            "status": "verified",
-            "url": url,
-            "file": str(destination),
-            "bytes": len(payload),
-            "rows": rows,
-            "games": len(games),
-            "latest_game_date": (
-                max(dates) if dates else None
-            ),
-        }
-
-        print(
-            f"Verified {key}: {rows} rows",
-            flush=True,
-        )
-
-    except Exception as error:
-        manifest["sources"][key] = {
-            "status": "failed",
-            "url": url,
-            "error": str(error),
-        }
-
-        print(
-            f"FAILED {key}: {error}",
-            flush=True,
-        )
-
-        if key == "pbp":
-            (OUT / "refresh_manifest.json").write_text(
-                json.dumps(manifest, indent=2)
-            )
-            raise
-
-(OUT / "refresh_manifest.json").write_text(
-    json.dumps(manifest, indent=2)
-)
-
-print("NFL LOCKBOX source refresh complete.")
+if __name__ == "__main__":
+    main()
