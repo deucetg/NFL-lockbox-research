@@ -20,6 +20,7 @@ on:
       - 'nfl_advanced_analytics.py'
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
+      - 'nfl_defensive_ratings.py'
       - 'nfl_matchup_intelligence.py'
       - 'nfl_schedule_matchups.py'
       - 'nfl_research_rankings.py'
@@ -44,6 +45,7 @@ on:
       - 'nfl_advanced_analytics.py'
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
+      - 'nfl_defensive_ratings.py'
       - 'nfl_matchup_intelligence.py'
       - 'nfl_schedule_matchups.py'
       - 'nfl_research_rankings.py'
@@ -105,6 +107,9 @@ jobs:
 
       - name: Build defensive matchup research
         run: python nfl_defensive_matchups.py
+
+      - name: Build defensive ratings and rankings
+        run: python nfl_defensive_ratings.py
 
       - name: Build offense-defense matchup intelligence
         run: python nfl_matchup_intelligence.py
