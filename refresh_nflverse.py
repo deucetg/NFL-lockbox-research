@@ -1,15 +1,6 @@
 
 #!/usr/bin/env python3
-"""
-NFL LOCKBOX — Automated nflverse Source Refresh
-
-Phase 8A upgrade:
-- Preserve existing research downloads
-- Add 2026 weekly roster evidence
-- Validate downloaded CSVs
-- Record source status and download timestamps
-- Never interpret roster status as game-day status
-"""
+"""NFL LOCKBOX nflverse refresh — Phase 8A roster fix."""
 
 import csv
 import gzip
@@ -21,96 +12,75 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 YEAR = "2026"
-
-BASE = (
-    "https://github.com/nflverse/"
-    "nflverse-data/releases/download"
-)
-
+BASE = "https://github.com/nflverse/nflverse-data/releases/download"
 OUT = Path("NFL_LOCKBOX_2026/source_data")
 OUT.mkdir(parents=True, exist_ok=True)
 
+# release, remote filename, local filename
 SOURCES = {
     "pbp": (
         "pbp",
+        "play_by_play_2026.csv.gz",
         "play_by_play_2026.csv.gz",
     ),
     "snap_counts": (
         "snap_counts",
         "snap_counts_2026.csv.gz",
+        "snap_counts_2026.csv.gz",
     ),
     "injuries": (
         "injuries",
+        "injuries_2026.csv.gz",
         "injuries_2026.csv.gz",
     ),
     "depth_charts": (
         "depth_charts",
         "depth_charts_2026.csv.gz",
+        "depth_charts_2026.csv.gz",
     ),
     "ftn_charting": (
         "ftn_charting",
         "ftn_charting_2026.csv",
+        "ftn_charting_2026.csv",
     ),
     "weekly_rosters": (
         "weekly_rosters",
+        "roster_weekly_2026.csv",
         "weekly_rosters_2026.csv.gz",
     ),
 }
 
 REQUIRED_PBP = {
-    "game_id",
-    "play_id",
-    "season",
-    "week",
-    "game_date",
-    "home_team",
-    "away_team",
-    "posteam",
-    "pass_attempt",
-    "rush_attempt",
+    "game_id", "play_id", "season", "week",
+    "game_date", "home_team", "away_team",
+    "posteam", "pass_attempt", "rush_attempt",
 }
 
-REQUIRED_ROSTER_GROUPS = {
-    "player_id": {
-        "gsis_id",
-        "player_gsis_id",
-        "gsis",
-    },
-    "team": {
-        "team",
-        "team_abbr",
-        "club_code",
-        "recent_team",
-    },
+ROSTER_FIELDS = {
+    "id": {"gsis_id", "player_gsis_id", "gsis"},
+    "team": {"team", "team_abbr", "recent_team"},
     "season": {"season", "season_year"},
     "week": {"week", "game_week"},
     "status": {"status", "roster_status"},
 }
 
 
-def utc_now():
-    return datetime.now(
-        timezone.utc
-    ).isoformat()
+def now():
+    return datetime.now(timezone.utc).isoformat()
 
 
-def validate_roster_columns(columns):
-    for label, choices in REQUIRED_ROSTER_GROUPS.items():
-        if not (columns & choices):
+def validate_roster(columns):
+    for field, alternatives in ROSTER_FIELDS.items():
+        if not columns.intersection(alternatives):
             raise ValueError(
-                "Weekly rosters missing required "
-                f"{label} column; found: "
-                f"{sorted(columns)}"
+                f"Weekly roster missing {field} column"
             )
 
 
-def download_source(key, release, filename):
-    url = f"{BASE}/{release}/{filename}"
+def download_source(key, release, remote, local):
+    url = f"{BASE}/{release}/{remote}"
 
-    print(
-        f"Downloading {key}: {url}",
-        flush=True,
-    )
+    print(f"Downloading {key}: {url}", flush=True)
 
     request = Request(
         url,
@@ -124,18 +94,17 @@ def download_source(key, release, filename):
         payload = response.read()
 
     if len(payload) < 100:
-        raise ValueError(
-            "Downloaded file unexpectedly small"
-        )
+        raise ValueError("Source file unexpectedly small")
 
     raw = (
         gzip.decompress(payload)
-        if filename.endswith(".gz")
+        if remote.endswith(".gz")
         else payload
     )
 
-    decoded = raw.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(decoded))
+    reader = csv.DictReader(
+        io.StringIO(raw.decode("utf-8-sig"))
+    )
 
     columns = set(reader.fieldnames or [])
 
@@ -146,11 +115,11 @@ def download_source(key, release, filename):
         missing = REQUIRED_PBP - columns
         if missing:
             raise ValueError(
-                f"PBP missing columns: {sorted(missing)}"
+                f"Missing PBP columns: {sorted(missing)}"
             )
 
     if key == "weekly_rosters":
-        validate_roster_columns(columns)
+        validate_roster(columns)
 
     rows = 0
     games = set()
@@ -161,8 +130,8 @@ def download_source(key, release, filename):
     for row in reader:
         rows += 1
 
-        game_id = row.get("game_id")
-        game_date = row.get("game_date")
+        game_id = row.get("game_id", "")
+        game_date = row.get("game_date", "")
 
         if game_id:
             games.add(game_id)
@@ -170,14 +139,16 @@ def download_source(key, release, filename):
         if game_date:
             dates.add(game_date)
 
-        season = row.get(
-            "season",
-            row.get("season_year", ""),
+        season = (
+            row.get("season")
+            or row.get("season_year")
+            or ""
         )
 
-        week = row.get(
-            "week",
-            row.get("game_week", ""),
+        week = (
+            row.get("week")
+            or row.get("game_week")
+            or ""
         )
 
         if season:
@@ -194,34 +165,40 @@ def download_source(key, release, filename):
             game.startswith("2026_")
             for game in games
         ):
-            raise ValueError(
-                "No 2026 game IDs found"
-            )
+            raise ValueError("No 2026 game IDs found")
 
     if key == "weekly_rosters":
         if YEAR not in seasons:
             raise ValueError(
-                "Weekly rosters contain no "
-                "2026 season records"
+                "Weekly roster source has no 2026 rows"
             )
 
+    # Preserve the local filename required by Phase 8A.
+    if local.endswith(".gz"):
+        output_payload = (
+            payload
+            if remote.endswith(".gz")
+            else gzip.compress(raw, mtime=0)
+        )
+    else:
+        output_payload = raw
+
     destination = (
-        Path(filename)
+        Path(local)
         if key == "pbp"
-        else OUT / filename
+        else OUT / local
     )
 
-    # Write only after validation succeeds.
-    destination.write_bytes(payload)
+    destination.write_bytes(output_payload)
 
     return {
         "status": "verified",
         "url": url,
         "file": str(destination),
-        "downloaded_at_utc": utc_now(),
-        "bytes": len(payload),
+        "downloaded_at_utc": now(),
+        "bytes": len(output_payload),
         "sha256": hashlib.sha256(
-            payload
+            output_payload
         ).hexdigest(),
         "rows": rows,
         "games": len(games),
@@ -242,45 +219,38 @@ def download_source(key, release, filename):
 def main():
     manifest = {
         "season": YEAR,
-        "refresh_version": "phase8a_weekly_rosters_v1",
-        "started_at_utc": utc_now(),
+        "refresh_version": "phase8a_roster_url_fix_v2",
+        "started_at_utc": now(),
         "sources": {},
     }
 
-    for key, (release, filename) in SOURCES.items():
+    for key, (release, remote, local) in SOURCES.items():
         try:
             result = download_source(
-                key,
-                release,
-                filename,
+                key, release, remote, local
             )
 
             manifest["sources"][key] = result
 
             print(
-                f"Verified {key}: "
-                f"{result['rows']} rows",
+                f"Verified {key}: {result['rows']} rows",
                 flush=True,
             )
 
         except Exception as error:
             destination = (
-                Path(filename)
+                Path(local)
                 if key == "pbp"
-                else OUT / filename
+                else OUT / local
             )
 
-            # Prevent an old local file from being
-            # mistaken for a fresh successful refresh.
             if destination.exists():
                 destination.unlink()
 
             manifest["sources"][key] = {
                 "status": "failed",
-                "url": (
-                    f"{BASE}/{release}/{filename}"
-                ),
-                "checked_at_utc": utc_now(),
+                "url": f"{BASE}/{release}/{remote}",
+                "checked_at_utc": now(),
                 "error": str(error),
             }
 
@@ -290,21 +260,16 @@ def main():
             )
 
             if key == "pbp":
-                manifest["completed_at_utc"] = utc_now()
-
+                manifest["completed_at_utc"] = now()
                 (
                     OUT / "refresh_manifest.json"
                 ).write_text(
-                    json.dumps(
-                        manifest,
-                        indent=2,
-                    ) + "\n",
+                    json.dumps(manifest, indent=2) + "\n",
                     encoding="utf-8",
                 )
-
                 raise
 
-    manifest["completed_at_utc"] = utc_now()
+    manifest["completed_at_utc"] = now()
 
     manifest["weekly_roster_ready"] = (
         manifest["sources"]
@@ -315,10 +280,7 @@ def main():
     (
         OUT / "refresh_manifest.json"
     ).write_text(
-        json.dumps(
-            manifest,
-            indent=2,
-        ) + "\n",
+        json.dumps(manifest, indent=2) + "\n",
         encoding="utf-8",
     )
 
