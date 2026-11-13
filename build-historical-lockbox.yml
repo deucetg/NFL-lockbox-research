@@ -1,0 +1,54 @@
+name: Build NFL LOCKBOX historical matchups
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: 'Historical season to download and build separately'
+        required: true
+        default: '2025'
+        type: choice
+        options:
+          - '2025'
+          - '2024'
+          - '2023'
+  pull_request:
+    paths:
+      - 'build_historical_lockbox.py'
+      - 'historical_matchup_lookup.py'
+      - 'tests/test_historical_lockbox.py'
+      - '.github/workflows/build-historical-lockbox.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check historical importer without network or modifying 2026
+        run: python -m unittest discover -s tests -p 'test_historical_lockbox.py' -v
+
+  historical-build:
+    if: github.event_name == 'workflow_dispatch'
+    needs: offline-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download and audit external historical nflverse PBP
+        run: python build_historical_lockbox.py --season '${{ inputs.season }}'
+      - name: Upload separate historical research artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-lockbox-historical-${{ inputs.season }}
+          path: NFL_LOCKBOX_2026/historical/${{ inputs.season }}/*
+          if-no-files-found: error
+          retention-days: 30
