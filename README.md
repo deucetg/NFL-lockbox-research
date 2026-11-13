@@ -1,6 +1,6 @@
 # NFL LOCKBOX 2026 — Audited PBP foundation
 
-This is a **research-only** database built from the user-uploaded `play_by_play_2026.csv.gz` (nflverse-style schema). No sportsbook tickets, wagers, or odds.
+This is a **research-only** database built from the user-uploaded `play_by_play_2026.csv.gz` (nflverse-style schema). 
 
 ## Contents
 - `nfl_lockbox_2026.sqlite`: `plays` (35 selected original play fields + source id), `player_game_usage`, `source_registry`, and `receiving_game_share` view.
