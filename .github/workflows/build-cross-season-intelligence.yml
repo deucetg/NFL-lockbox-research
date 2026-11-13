@@ -1,0 +1,102 @@
+name: NFL LOCKBOX cross-season matchup intelligence
+
+on:
+  workflow_dispatch:
+    inputs:
+      as_of:
+        description: 'Eastern as-of date YYYY-MM-DD (blank = today)'
+        required: false
+        type: string
+      days:
+        description: 'Upcoming matchup horizon in days'
+        required: true
+        default: '8'
+        type: choice
+        options:
+          - '8'
+          - '14'
+          - '21'
+  workflow_run:
+    workflows:
+      - Build NFL LOCKBOX database
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: nfl-cross-season-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  research:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate cross-season research with offline fixtures
+        run: python -m unittest discover -s tests -p 'test_cross_season_matchups.py' -v
+
+      - name: Download current 2026 LOCKBOX research artifact
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: nfl-lockbox-research
+          path: NFL_LOCKBOX_2026
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Cache audited historical databases (versioned baseline)
+        uses: actions/cache@v4
+        with:
+          path: NFL_LOCKBOX_2026/historical
+          key: nfl-lockbox-history-2023-2025-v1-${{ runner.os }}
+
+      - name: Build separately audited 2023 2024 and 2025 history if absent
+        run: |
+          set -eu
+          for YEAR in 2023 2024 2025; do
+            DB="NFL_LOCKBOX_2026/historical/${YEAR}/nfl_historical_${YEAR}.sqlite"
+            EPA="NFL_LOCKBOX_2026/historical/${YEAR}/defensive_epa_by_game_${YEAR}.csv"
+            if [ -s "$DB" ] && [ -s "$EPA" ]; then
+              echo "Using audited cached history for $YEAR"
+            else
+              python build_historical_lockbox.py --season "$YEAR"
+            fi
+          done
+
+      - name: Build historical head-to-head context for upcoming 2026 games
+        env:
+          AS_OF: ${{ inputs.as_of }}
+          DAYS: ${{ inputs.days }}
+        run: |
+          set -eu
+          ARGS=(--days "${DAYS:-8}")
+          if [ -n "${AS_OF:-}" ]; then ARGS+=(--as-of "$AS_OF"); fi
+          if [ -f NFL_LOCKBOX_2026/advanced_analytics/upcoming_actual_matchups_2026.csv ]; then
+            ARGS+=(--schedule-file NFL_LOCKBOX_2026/advanced_analytics/upcoming_actual_matchups_2026.csv)
+          fi
+          if [ -f NFL_LOCKBOX_2026/player_game_usage.csv ]; then
+            ARGS+=(--current-usage-file NFL_LOCKBOX_2026/player_game_usage.csv)
+          fi
+          python build_cross_season_matchups.py "${ARGS[@]}"
+
+      - name: Publish independent historical research artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-lockbox-cross-season-intelligence
+          path: NFL_LOCKBOX_2026/historical_intelligence/*
+          if-no-files-found: warn
+          retention-days: 30
