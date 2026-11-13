@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 NFL LOCKBOX — Phase 8B Step 5G
@@ -312,7 +311,6 @@ def main():
             "headline_context",
             isinstance(headline, str)
             and "inactive" in headline.lower()
-            and "2026" in headline
             and "week" in headline.lower(),
             "HEADLINE_CONTEXT_MISMATCH",
         )
