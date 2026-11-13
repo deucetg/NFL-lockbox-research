@@ -113,7 +113,26 @@ def build(season, source_file, root, source_url=None):
         (season, source_url or str(src), digest.hexdigest(),
          'EXTERNAL_HISTORICAL_NFLVERSE_PBP_NOT_USER_VERIFIED'))
     games = {}
+    # Aggregate by stable player ID, NOT display name: nflverse names can vary
+    # across plays for the same player in the same game.
     stats = collections.defaultdict(collections.Counter)
+    player_names = collections.defaultdict(collections.Counter)
+    player_game_teams = {}
+
+    def usage_key(gid, week, date, team, player_id, name, role):
+        slot = (gid, player_id, role)
+        prior = player_game_teams.setdefault(slot, team)
+        if prior != team:
+            raise ValueError(
+                f'Conflicting teams for player ID {player_id} in {gid} ({role}): ' 
+                f'{prior} versus {team}; investigate source rather than merge'
+            )
+        key = (gid, season, week, date, team, player_id, role)
+        display = (name or '').strip()
+        if display:
+            player_names[key][display] += 1
+        return key
+
     defense = collections.defaultdict(collections.Counter)
     duplicate = 0
     missing_receiver = 0
@@ -179,7 +198,7 @@ def build(season, source_file, root, source_url=None):
                         defense[(gid,deft)]['rush_count'] += 1
                         defense[(gid,deft)]['rush_epa_sum'] += epa
                 if pa and rpid and off:
-                    key=(gid,season,week,g['date'],off,rpid,r.get('receiver_player_name') or '', 'receiving')
+                    key=usage_key(gid,week,g['date'],off,rpid,r.get('receiver_player_name'),'receiving')
                     x=stats[key]; x['targets']+=1; x['receptions']+=int(cp == 1)
                     x['receiving_yards']+=recv_y
                     x['third_down_targets']+=int(down==3)
@@ -189,13 +208,13 @@ def build(season, source_file, root, source_url=None):
                     x['q1_receptions']+=int(qtr==1 and cp==1)
                     x['q1_receiving_yards']+=recv_y if qtr==1 else 0
                 if ra and runid and off:
-                    key=(gid,season,week,g['date'],off,runid,r.get('rusher_player_name') or '', 'rushing')
+                    key=usage_key(gid,week,g['date'],off,runid,r.get('rusher_player_name'),'rushing')
                     x=stats[key];x['rush_attempts']+=1;x['rushing_yards']+=rush_y
                     x['red_zone_rushes']+=int(red);x['goal_to_go_rushes']+=int(gt==1)
                     x['q1_rush_attempts']+=int(qtr==1)
                     x['q1_rushing_yards']+=rush_y if qtr==1 else 0
                 if pa and ppid and off:
-                    key=(gid,season,week,g['date'],off,ppid,r.get('passer_player_name') or '', 'passing')
+                    key=usage_key(gid,week,g['date'],off,ppid,r.get('passer_player_name'),'passing')
                     x=stats[key];x['pass_attempts']+=1;x['completions']+=int(cp==1)
                     x['passing_yards']+=pass_y
                     x['q1_pass_attempts']+=int(qtr==1)
@@ -216,8 +235,13 @@ def build(season, source_file, root, source_url=None):
                 h2h_rows.append((season,a,b,gid,g['date'],g['week'],g['home'],g['away'],coverage))
         con.executemany('INSERT INTO games VALUES ('+','.join(['?']*11)+')', games_rows)
         usage_rows=[]
-        for key,vals in sorted(stats.items(),key=lambda x:(x[0][3],x[0][0],x[0][7],x[0][6])):
-            usage_rows.append((*key, *(vals.get(m,0) for m in METRICS)))
+        for key,vals in sorted(stats.items(),key=lambda x:(x[0][3],x[0][0],x[0][6],x[0][5])):
+            # Use the most frequent nonblank display name; ties sort alphabetically.
+            names = player_names[key]
+            canonical_name = (sorted(names, key=lambda n: (-names[n], n))[0]
+                              if names else key[5])
+            usage_rows.append((*key[:6], canonical_name, key[6],
+                               *(vals.get(m,0) for m in METRICS)))
         con.executemany('INSERT INTO player_game_usage VALUES ('+','.join(['?']*29)+')',usage_rows)
         con.commit()
         write_csv(out / f'historical_games_{season}.csv',
@@ -240,6 +264,12 @@ def build(season, source_file, root, source_url=None):
             'provenance':'EXTERNAL_HISTORICAL_NFLVERSE_PBP_NOT_USER_VERIFIED',
             'game_count':len(games),'play_rows':total,'duplicate_play_keys':duplicate,
             'identified_player_game_role_rows':len(stats),
+            'player_game_roles_with_name_variants':sum(1 for c in player_names.values() if len(c)>1),
+            'player_name_variant_examples':[
+                {'game_id':key[0], 'player_id':key[5], 'role':key[6],
+                 'names':sorted(names)}
+                for key,names in sorted(player_names.items()) if len(names)>1
+            ][:20],
             'pass_attempts_missing_receiver_id':missing_receiver,
             'excluded_two_point_plays_from_usage':discarded_two_point,
             'games_with_end_marker':sum(g['end'] for g in games.values()),
