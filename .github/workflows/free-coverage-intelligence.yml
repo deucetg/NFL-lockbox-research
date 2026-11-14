@@ -1,0 +1,35 @@
+name: NFL LOCKBOX Free Coverage Intelligence
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'import_free_coverage.py'
+      - 'coverage_data/free_team_coverage_2026.csv'
+      - 'coverage_data/free_player_coverage_2026.csv'
+      - '.github/workflows/free-coverage-intelligence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-free-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run free coverage importer
+        run: python import_free_coverage.py
+      - name: Upload research and audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-lockbox-free-coverage-research
+          path: |
+            coverage_data/free_coverage_audit_2026.json
+            coverage_data/free_coverage_research_2026.json
+          if-no-files-found: error
