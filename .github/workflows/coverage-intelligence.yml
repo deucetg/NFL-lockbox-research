@@ -1,0 +1,38 @@
+
+name: NFL LOCKBOX Coverage Intelligence
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "coverage_intelligence.py"
+      - "coverage_data/**"
+      - ".github/workflows/coverage-intelligence.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate coverage data
+        run: |
+          python coverage_intelligence.py
+
+      - name: Upload coverage audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-lockbox-coverage-audit
+          path: coverage_data/coverage_audit_2026.json
+          if-no-files-found: error
