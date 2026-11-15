@@ -127,9 +127,6 @@ jobs:
       - name: Build opportunity confidence audit
         run: python build_opportunity_confidence.py
 
-      - name: Audit game-day participation evidence
-        run: python build_game_day_participation_evidence.py
-
       - name: Build advanced analytics
         run: python nfl_advanced_analytics.py
 
@@ -186,6 +183,9 @@ jobs:
 
       - name: Reconcile Phase 8B schedule and GSIS identities
         run: python nfl_inactive_reconciliation.py
+
+      - name: Audit game-day participation evidence
+        run: python build_game_day_participation_evidence.py
 
       - name: Test Phase 8B official NFL source collection
         if: github.event_name == 'workflow_dispatch'
