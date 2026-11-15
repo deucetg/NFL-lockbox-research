@@ -20,6 +20,7 @@ on:
       - 'build_participation_audit.py'
       - 'build_opportunity_confidence.py'
       - 'build_game_day_participation_evidence.py'
+      - 'audit_official_inactive_pipeline.py'
       - 'nfl_advanced_analytics.py'
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
@@ -56,6 +57,7 @@ on:
       - 'build_participation_audit.py'
       - 'build_opportunity_confidence.py'
       - 'build_game_day_participation_evidence.py'
+      - 'audit_official_inactive_pipeline.py'
       - 'nfl_advanced_analytics.py'
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
@@ -200,6 +202,10 @@ jobs:
       - name: Validate Phase 8B official evidence consistency
         if: github.event_name == 'workflow_dispatch'
         run: python nfl_official_evidence_validator.py
+
+      - name: Audit official inactive pipeline readiness
+        if: always()
+        run: python audit_official_inactive_pipeline.py
 
       - name: Upload research artifacts
         if: always()
