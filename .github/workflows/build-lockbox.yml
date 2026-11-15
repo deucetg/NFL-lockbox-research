@@ -1,4 +1,3 @@
-
 name: Build NFL LOCKBOX database
 
 on:
@@ -17,6 +16,7 @@ on:
       - 'match_player_ids.py'
       - 'score_state_research.py'
       - 'opportunity_audit.py'
+      - 'build_participation_audit.py'
       - 'nfl_advanced_analytics.py'
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
@@ -50,6 +50,7 @@ on:
       - 'match_player_ids.py'
       - 'score_state_research.py'
       - 'opportunity_audit.py'
+      - 'build_participation_audit.py'
       - 'nfl_advanced_analytics.py'
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
@@ -114,6 +115,9 @@ jobs:
 
       - name: Audit player opportunities
         run: python opportunity_audit.py
+
+      - name: Reconcile player participation
+        run: python build_participation_audit.py --source NFL_LOCKBOX_2026 --output NFL_LOCKBOX_2026/participation_audit
 
       - name: Build advanced analytics
         run: python nfl_advanced_analytics.py
@@ -195,6 +199,8 @@ jobs:
             NFL_LOCKBOX_2026/nfl_lockbox_2026.sqlite
             NFL_LOCKBOX_2026/*.csv
             NFL_LOCKBOX_2026/*.json
+            NFL_LOCKBOX_2026/participation_audit/*.csv
+            NFL_LOCKBOX_2026/participation_audit/*.json
             NFL_LOCKBOX_2026/source_data/refresh_manifest.json
             NFL_LOCKBOX_2026/source_data/official_inactives_staging_2026.csv
             NFL_LOCKBOX_2026/source_data/official_inactives_staging_audit_2026.json
