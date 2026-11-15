@@ -19,6 +19,7 @@ on:
       - 'opportunity_audit.py'
       - 'build_participation_audit.py'
       - 'build_opportunity_confidence.py'
+      - 'build_game_day_participation_evidence.py'
       - 'nfl_advanced_analytics.py'
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
@@ -54,6 +55,7 @@ on:
       - 'opportunity_audit.py'
       - 'build_participation_audit.py'
       - 'build_opportunity_confidence.py'
+      - 'build_game_day_participation_evidence.py'
       - 'nfl_advanced_analytics.py'
       - 'nfl_explosive_dependency.py'
       - 'nfl_defensive_matchups.py'
@@ -124,6 +126,9 @@ jobs:
 
       - name: Build opportunity confidence audit
         run: python build_opportunity_confidence.py
+
+      - name: Audit game-day participation evidence
+        run: python build_game_day_participation_evidence.py
 
       - name: Build advanced analytics
         run: python nfl_advanced_analytics.py
