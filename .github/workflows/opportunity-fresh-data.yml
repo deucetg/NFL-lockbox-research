@@ -37,6 +37,9 @@ jobs:
       - name: Test opportunity/production divergence calculations
         run: python -m unittest discover -s tests -p 'test_opportunity_divergence.py' -v
 
+      - name: Test veteran resurgence calculations
+        run: python -m unittest discover -s tests -p 'test_veteran_resurgence.py' -v
+
       - name: Download successful upstream build artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -127,6 +130,14 @@ jobs:
             --manifest NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_source_manifest_2026.json \
             --output-dir NFL_LOCKBOX_2026/advanced_analytics
 
+      - name: Build veteran resurgence research
+        run: |
+          python build_veteran_resurgence.py \
+            --usage upstream/player_game_usage.csv \
+            --coverage upstream/game_coverage.csv \
+            --manifest NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_source_manifest_2026.json \
+            --output-dir NFL_LOCKBOX_2026/advanced_analytics
+
       - name: Upload fresh acceleration research
         if: always()
         uses: actions/upload-artifact@v4
@@ -138,5 +149,7 @@ jobs:
             NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_source_manifest_2026.json
             NFL_LOCKBOX_2026/advanced_analytics/opportunity_production_divergence_2026.csv
             NFL_LOCKBOX_2026/advanced_analytics/opportunity_production_divergence_audit_2026.json
+            NFL_LOCKBOX_2026/advanced_analytics/veteran_resurgence_2026.csv
+            NFL_LOCKBOX_2026/advanced_analytics/veteran_resurgence_audit_2026.json
           if-no-files-found: warn
           retention-days: 30
