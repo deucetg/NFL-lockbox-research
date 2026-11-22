@@ -1,0 +1,127 @@
+
+name: NFL LOCKBOX Fresh Opportunity Acceleration
+
+on:
+  workflow_run:
+    workflows:
+      - Build NFL LOCKBOX database
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: nfl-lockbox-fresh-opportunity-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  accelerate:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Test acceleration calculations
+        run: python -m unittest discover -s tests -p 'test_opportunity_acceleration.py' -v
+
+      - name: Download successful upstream build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p upstream
+          gh run download "$UPSTREAM_RUN_ID" \
+            --repo "$GH_REPO" \
+            --name nfl-lockbox-research \
+            --dir upstream
+
+      - name: Validate upstream CSVs
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          base = Path('upstream/NFL_LOCKBOX_2026')
+          for filename, required in (
+              ('player_game_usage.csv', {'game_id', 'game_date', 'team', 'player_id', 'role'}),
+              ('game_coverage.csv', {'game_id', 'date', 'teams', 'status'}),
+          ):
+              path = base / filename
+              if not path.is_file():
+                  raise SystemExit(f'Missing required upstream artifact file: {path}')
+              with path.open(newline='', encoding='utf-8-sig') as f:
+                  reader = csv.DictReader(f)
+                  if not required.issubset(reader.fieldnames or []):
+                      raise SystemExit(f'Invalid columns in {path}: {reader.fieldnames}')
+                  if next(reader, None) is None:
+                      raise SystemExit(f'Empty upstream CSV: {path}')
+              print(f'Validated {path}')
+          PY
+
+      - name: Build fresh opportunity acceleration
+        run: |
+          python build_opportunity_acceleration.py \
+            --usage upstream/NFL_LOCKBOX_2026/player_game_usage.csv \
+            --coverage upstream/NFL_LOCKBOX_2026/game_coverage.csv \
+            --output-dir NFL_LOCKBOX_2026/advanced_analytics
+
+      - name: Write upstream provenance manifest
+        env:
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+          UPSTREAM_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          UPSTREAM_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          import os
+          from collections import Counter
+          from datetime import datetime, timezone
+          from pathlib import Path
+          base = Path('upstream/NFL_LOCKBOX_2026')
+          with (base / 'player_game_usage.csv').open(newline='', encoding='utf-8-sig') as f:
+              usage = list(csv.DictReader(f))
+          with (base / 'game_coverage.csv').open(newline='', encoding='utf-8-sig') as f:
+              coverage = list(csv.DictReader(f))
+          manifest = {
+              'generated_utc': datetime.now(timezone.utc).isoformat(),
+              'source_type': 'successful_main_build_artifact',
+              'upstream_workflow': 'Build NFL LOCKBOX database',
+              'upstream_run_id': os.environ['UPSTREAM_RUN_ID'],
+              'upstream_head_sha': os.environ['UPSTREAM_HEAD_SHA'],
+              'upstream_url': os.environ['UPSTREAM_URL'],
+              'source_files': [str(base / 'player_game_usage.csv'), str(base / 'game_coverage.csv')],
+              'usage_rows': len(usage),
+              'coverage_games': len(coverage),
+              'latest_usage_game_date': max((r.get('game_date', '') for r in usage), default=''),
+              'latest_coverage_game_date': max((r.get('date', '') for r in coverage), default=''),
+              'coverage_status_counts': dict(Counter(r.get('status', 'UNKNOWN') for r in coverage)),
+              'validation_warning': 'Freshly built does not mean independently box-score validated. Missing player-games are not zeros.',
+          }
+          out = Path('NFL_LOCKBOX_2026/advanced_analytics')
+          out.mkdir(parents=True, exist_ok=True)
+          (out / 'opportunity_acceleration_source_manifest_2026.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          print(json.dumps(manifest, indent=2))
+          PY
+
+      - name: Upload fresh acceleration research
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-lockbox-fresh-opportunity-acceleration
+          path: |
+            NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_2026.csv
+            NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_audit_2026.json
+            NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_source_manifest_2026.json
+          if-no-files-found: warn
+          retention-days: 30
