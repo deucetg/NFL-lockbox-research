@@ -34,6 +34,9 @@ jobs:
       - name: Test acceleration calculations
         run: python -m unittest discover -s tests -p 'test_opportunity_acceleration.py' -v
 
+      - name: Test opportunity/production divergence calculations
+        run: python -m unittest discover -s tests -p 'test_opportunity_divergence.py' -v
+
       - name: Download successful upstream build artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -117,6 +120,13 @@ jobs:
           print(json.dumps(manifest, indent=2))
           PY
 
+      - name: Build opportunity/production divergence research
+        run: |
+          python build_opportunity_divergence.py \
+            --acceleration NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_2026.csv \
+            --manifest NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_source_manifest_2026.json \
+            --output-dir NFL_LOCKBOX_2026/advanced_analytics
+
       - name: Upload fresh acceleration research
         if: always()
         uses: actions/upload-artifact@v4
@@ -126,5 +136,7 @@ jobs:
             NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_2026.csv
             NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_audit_2026.json
             NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_source_manifest_2026.json
+            NFL_LOCKBOX_2026/advanced_analytics/opportunity_production_divergence_2026.csv
+            NFL_LOCKBOX_2026/advanced_analytics/opportunity_production_divergence_audit_2026.json
           if-no-files-found: warn
           retention-days: 30
