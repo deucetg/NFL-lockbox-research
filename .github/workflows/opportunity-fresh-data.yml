@@ -43,6 +43,9 @@ jobs:
       - name: Test walk-forward backtesting calculations
         run: python -m unittest discover -s tests -p 'test_opportunity_walkforward.py' -v
 
+      - name: Test box-score validation queue calculations
+        run: python -m unittest discover -s tests -p 'test_boxscore_validation_queue.py' -v
+
       - name: Download successful upstream build artifact
         env:
           GH_TOKEN: ${{ github.token }}
@@ -60,21 +63,27 @@ jobs:
           python - <<'PY'
           import csv
           from pathlib import Path
-          # The main build's upload-artifact step strips NFL_LOCKBOX_2026/.
-          # The verified artifact contains both required CSVs at its root.
+
           base = Path('upstream')
           for filename, required in (
               ('player_game_usage.csv', {'game_id', 'game_date', 'team', 'player_id', 'role'}),
               ('game_coverage.csv', {'game_id', 'date', 'teams', 'status'}),
+              ('game_quality_2026.csv', {'game_id', 'date', 'home_team', 'away_team', 'pbp_rows', 'end_game_markers'}),
+              ('participation_audit/player_game_participation_reconciled.csv', {'game_id', 'team', 'player_id', 'reconciled_status'}),
           ):
               path = base / filename
               if not path.is_file():
                   available = sorted(str(p) for p in base.rglob('*.csv'))
-                  raise SystemExit(f'Missing required upstream artifact file: {path}; available CSVs: {available[:30]}')
+                  raise SystemExit(
+                      f'Missing upstream file: {path}; '
+                      f'available CSVs: {available[:30]}'
+                  )
               with path.open(newline='', encoding='utf-8-sig') as f:
                   reader = csv.DictReader(f)
                   if not required.issubset(reader.fieldnames or []):
-                      raise SystemExit(f'Invalid columns in {path}: {reader.fieldnames}')
+                      raise SystemExit(
+                          f'Invalid columns in {path}: {reader.fieldnames}'
+                      )
                   if next(reader, None) is None:
                       raise SystemExit(f'Empty upstream CSV: {path}')
               print(f'Validated {path}')
@@ -100,11 +109,13 @@ jobs:
           from collections import Counter
           from datetime import datetime, timezone
           from pathlib import Path
+
           base = Path('upstream')
           with (base / 'player_game_usage.csv').open(newline='', encoding='utf-8-sig') as f:
               usage = list(csv.DictReader(f))
           with (base / 'game_coverage.csv').open(newline='', encoding='utf-8-sig') as f:
               coverage = list(csv.DictReader(f))
+
           manifest = {
               'generated_utc': datetime.now(timezone.utc).isoformat(),
               'source_type': 'successful_main_build_artifact',
@@ -112,17 +123,32 @@ jobs:
               'upstream_run_id': os.environ['UPSTREAM_RUN_ID'],
               'upstream_head_sha': os.environ['UPSTREAM_HEAD_SHA'],
               'upstream_url': os.environ['UPSTREAM_URL'],
-              'source_files': [str(base / 'player_game_usage.csv'), str(base / 'game_coverage.csv')],
+              'source_files': [
+                  str(base / 'player_game_usage.csv'),
+                  str(base / 'game_coverage.csv')
+              ],
               'usage_rows': len(usage),
               'coverage_games': len(coverage),
-              'latest_usage_game_date': max((r.get('game_date', '') for r in usage), default=''),
-              'latest_coverage_game_date': max((r.get('date', '') for r in coverage), default=''),
-              'coverage_status_counts': dict(Counter(r.get('status', 'UNKNOWN') for r in coverage)),
-              'validation_warning': 'Freshly built does not mean independently box-score validated. Missing player-games are not zeros.',
+              'latest_usage_game_date': max(
+                  (r.get('game_date', '') for r in usage), default=''
+              ),
+              'latest_coverage_game_date': max(
+                  (r.get('date', '') for r in coverage), default=''
+              ),
+              'coverage_status_counts': dict(
+                  Counter(r.get('status', 'UNKNOWN') for r in coverage)
+              ),
+              'validation_warning': (
+                  'Freshly built does not mean independently box-score '
+                  'validated. Missing player-games are not zeros.'
+              ),
           }
+
           out = Path('NFL_LOCKBOX_2026/advanced_analytics')
           out.mkdir(parents=True, exist_ok=True)
-          (out / 'opportunity_acceleration_source_manifest_2026.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          (
+              out / 'opportunity_acceleration_source_manifest_2026.json'
+          ).write_text(json.dumps(manifest, indent=2) + '\n')
           print(json.dumps(manifest, indent=2))
           PY
 
@@ -149,6 +175,18 @@ jobs:
             --manifest NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_source_manifest_2026.json \
             --output-dir NFL_LOCKBOX_2026/advanced_analytics
 
+      - name: Build box-score validation priority queue
+        run: |
+          python build_boxscore_validation_queue.py \
+            --usage upstream/player_game_usage.csv \
+            --coverage upstream/game_coverage.csv \
+            --quality upstream/game_quality_2026.csv \
+            --participation upstream/participation_audit/player_game_participation_reconciled.csv \
+            --walkforward NFL_LOCKBOX_2026/advanced_analytics/opportunity_walkforward_2026.csv \
+            --walkforward-audit NFL_LOCKBOX_2026/advanced_analytics/opportunity_walkforward_audit_2026.json \
+            --manifest NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_source_manifest_2026.json \
+            --output-dir NFL_LOCKBOX_2026/advanced_analytics
+
       - name: Upload fresh acceleration research
         if: always()
         uses: actions/upload-artifact@v4
@@ -164,5 +202,7 @@ jobs:
             NFL_LOCKBOX_2026/advanced_analytics/veteran_resurgence_audit_2026.json
             NFL_LOCKBOX_2026/advanced_analytics/opportunity_walkforward_2026.csv
             NFL_LOCKBOX_2026/advanced_analytics/opportunity_walkforward_audit_2026.json
+            NFL_LOCKBOX_2026/advanced_analytics/boxscore_validation_queue_2026.csv
+            NFL_LOCKBOX_2026/advanced_analytics/boxscore_validation_queue_audit_2026.json
           if-no-files-found: warn
           retention-days: 30
