@@ -1,0 +1,79 @@
+
+name: NFL LOCKBOX Opportunity Acceleration
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'build_opportunity_acceleration.py'
+      - 'tests/test_opportunity_acceleration.py'
+      - 'player_game_usage.csv'
+      - 'game_coverage.csv'
+      - '.github/workflows/opportunity-acceleration.yml'
+  schedule:
+    - cron: '15 14 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nfl-lockbox-opportunity-acceleration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  opportunity-acceleration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run acceleration unit tests
+        run: python -m unittest discover -s tests -p 'test_opportunity_acceleration.py' -v
+
+      - name: Generate opportunity acceleration leaderboard
+        run: |
+          python build_opportunity_acceleration.py \
+            --usage player_game_usage.csv \
+            --coverage game_coverage.csv \
+            --output-dir NFL_LOCKBOX_2026/advanced_analytics
+
+      - name: Record source snapshot provenance
+        run: |
+          python - <<'PY'
+          import csv, json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          out = Path('NFL_LOCKBOX_2026/advanced_analytics')
+          with Path('player_game_usage.csv').open(newline='', encoding='utf-8-sig') as f:
+              dates = [r['game_date'] for r in csv.DictReader(f) if r.get('game_date')]
+          with Path('game_coverage.csv').open(newline='', encoding='utf-8-sig') as f:
+              coverage = list(csv.DictReader(f))
+          metadata = {
+              'generated_utc': datetime.now(timezone.utc).isoformat(),
+              'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'source_files': ['player_game_usage.csv', 'game_coverage.csv'],
+              'latest_usage_game_date': max(dates) if dates else None,
+              'latest_coverage_game_date': max((r.get('date', '') for r in coverage), default=None),
+              'coverage_status_counts': {s: sum(r.get('status') == s for r in coverage) for s in sorted({r.get('status', '') for r in coverage})},
+              'note': 'Uses committed repository snapshots, not fresh upstream workflow artifacts. Game completeness remains unverified.'
+          }
+          (out / 'opportunity_acceleration_source_manifest_2026.json').write_text(json.dumps(metadata, indent=2) + '\n')
+          print(json.dumps(metadata, indent=2))
+          PY
+
+      - name: Upload acceleration research artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-lockbox-opportunity-acceleration
+          path: |
+            NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_2026.csv
+            NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_audit_2026.json
+            NFL_LOCKBOX_2026/advanced_analytics/opportunity_acceleration_source_manifest_2026.json
+          if-no-files-found: warn
+          retention-days: 30
