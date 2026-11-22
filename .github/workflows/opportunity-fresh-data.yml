@@ -51,14 +51,17 @@ jobs:
           python - <<'PY'
           import csv
           from pathlib import Path
-          base = Path('upstream/NFL_LOCKBOX_2026')
+          # The main build's upload-artifact step strips NFL_LOCKBOX_2026/.
+          # The verified artifact contains both required CSVs at its root.
+          base = Path('upstream')
           for filename, required in (
               ('player_game_usage.csv', {'game_id', 'game_date', 'team', 'player_id', 'role'}),
               ('game_coverage.csv', {'game_id', 'date', 'teams', 'status'}),
           ):
               path = base / filename
               if not path.is_file():
-                  raise SystemExit(f'Missing required upstream artifact file: {path}')
+                  available = sorted(str(p) for p in base.rglob('*.csv'))
+                  raise SystemExit(f'Missing required upstream artifact file: {path}; available CSVs: {available[:30]}')
               with path.open(newline='', encoding='utf-8-sig') as f:
                   reader = csv.DictReader(f)
                   if not required.issubset(reader.fieldnames or []):
@@ -71,8 +74,8 @@ jobs:
       - name: Build fresh opportunity acceleration
         run: |
           python build_opportunity_acceleration.py \
-            --usage upstream/NFL_LOCKBOX_2026/player_game_usage.csv \
-            --coverage upstream/NFL_LOCKBOX_2026/game_coverage.csv \
+            --usage upstream/player_game_usage.csv \
+            --coverage upstream/game_coverage.csv \
             --output-dir NFL_LOCKBOX_2026/advanced_analytics
 
       - name: Write upstream provenance manifest
@@ -88,7 +91,7 @@ jobs:
           from collections import Counter
           from datetime import datetime, timezone
           from pathlib import Path
-          base = Path('upstream/NFL_LOCKBOX_2026')
+          base = Path('upstream')
           with (base / 'player_game_usage.csv').open(newline='', encoding='utf-8-sig') as f:
               usage = list(csv.DictReader(f))
           with (base / 'game_coverage.csv').open(newline='', encoding='utf-8-sig') as f:
